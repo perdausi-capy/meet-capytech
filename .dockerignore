@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+data
+.env*
+!.env.example
+tests
+docs
+coverage
+codebase.txt
+*.md
+!README.md

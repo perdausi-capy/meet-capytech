@@ -1,21 +1,109 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #ffffff;
+  --surface: #f4f4f5;
+  --surface-hover: #e4e4e7;
+  --line: #d4d4d8;
+  
+  /* Light Theme High-Contrast Colors */
+  --text-primary: #09090b;       /* Deep solid black */
+  --text-secondary: #18181b;     /* High-contrast charcoal */
+  --text-muted: #3f3f46;         /* Solid dark zinc */
+  
+  --tip-bg: #eff6ff;             /* Sky blue tint */
+  --tip-border: #2563eb;         /* Vibrant blue border */
+  --tip-text: #1e3a8a;           /* Deep blue readable text */
+  
+  --slot-bg: #eff6ff;            /* Light blue slot pill */
+  --slot-border: #bfdbfe;        /* Blue border */
+  --slot-text: #1e3a8a;          /* Deep navy text */
+  --slot-hover: #2563eb;         /* Primary blue hover */
+
+  --font-sans: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+.dark {
+  --bg: #09090b;
+  --surface: #141417;
+  --surface-hover: #202025;
+  --line: #27272a;
+  
+  /* Dark Theme High-Contrast Colors */
+  --text-primary: #ffffff;       /* Pure white */
+  --text-secondary: #e4e4e7;     /* Light grey */
+  --text-muted: #a1a1aa;         /* Soft grey */
+  
+  --tip-bg: #172554;             /* Deep dark blue */
+  --tip-border: #3b82f6;         /* Bright blue border */
+  --tip-text: #dbeafe;           /* Light blue text */
+  
+  --slot-bg: #1e293b;            /* Dark slate slot pill */
+  --slot-border: #334155;        /* Dark slate border */
+  --slot-text: #93c5fd;          /* Soft light blue text */
+  --slot-hover: #2563eb;         /* Bright blue hover */
+}
+
+@layer base {
+  body {
+    background-color: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    letter-spacing: -0.02em;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    letter-spacing: -0.03em;
+    color: var(--text-primary);
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+.font-mono-spec {
+  font-family: var(--font-mono);
+}
+
+.hairline-border {
+  border: 1px solid var(--line);
+}
+
+.hairline-b {
+  border-bottom: 1px solid var(--line);
+}
+
+.hairline-t {
+  border-top: 1px solid var(--line);
+}
+
+.hairline-r {
+  border-right: 1px solid var(--line);
+}
+
+.hairline-l {
+  border-left: 1px solid var(--line);
+}
+
+/* Input Underline Style */
+.input-underline {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--line);
+  border-radius: 0;
+  font-family: var(--font-sans);
+  font-size: 1.125rem;
+  padding: 0.5rem 0;
+  color: var(--text-primary);
+  transition: border-color 0.2s ease;
+}
+
+.input-underline:focus {
+  outline: none;
+  border-bottom-color: #2563eb;
 }
