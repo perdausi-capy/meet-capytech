@@ -25,8 +25,9 @@ import {
   X,
   Menu,
   CalendarClock,
-  Settings,
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import dynamic from 'next/dynamic';
@@ -35,16 +36,20 @@ const Canvas3D = dynamic(() => import('@/components/Canvas3D').then((m) => m.Can
   ssr: false,
 });
 
-// --- Types ---
 interface Booking {
   id: string;
   name: string;
   email: string;
-  type?: string;
+  typeSlug?: string;
   type_slug?: string;
-  date?: string;
+  type?: string;
+  startsAt?: string;
+  endsAt?: string;
   starts_at?: string;
   ends_at?: string;
+  date?: string;
+  startTime?: string;
+  endTime?: string;
   notes?: string;
   status: 'confirmed' | 'cancelled' | 'rescheduled';
   manageToken?: string;
@@ -57,15 +62,17 @@ interface SystemStatus {
   freeBusyService: { lastError: string | null; totalErrorsLogged: number };
 }
 
-// --- Helper Functions ---
 const getMeetingTypeSlug = (b: Booking): string => {
-  const raw = String(b.type_slug || b.type || '').toLowerCase();
+  const raw = String(b.typeSlug || b.type_slug || b.type || b.meetingType || '').toLowerCase();
   if (raw.includes('intro') || raw.includes('15')) return 'intro';
   return 'tech';
 };
 
 const getValidDate = (b: Booking, key: 'start' | 'end'): Date | null => {
-  const candidate = key === 'start' ? b.starts_at : b.ends_at;
+  const candidate =
+    key === 'start'
+      ? b.startsAt || b.starts_at || b.startTime || b.date
+      : b.endsAt || b.ends_at || b.endTime;
   if (!candidate) return null;
   const directDate = new Date(candidate);
   if (!isNaN(directDate.getTime())) return directDate;
@@ -115,55 +122,77 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 const DynamicActivityChart = ({ bookings }: { bookings: Booking[] }) => {
   const [mounted, setMounted] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [timeAgg, setTimeAgg] = useState<'daily' | 'monthly'>('daily');
+  const [timeAgg, setTimeAgg] = useState<'daily' | 'monthly'>('monthly');
   const [metrics, setMetrics] = useState({ confirmed: true, cancelled: true, rescheduled: true });
+  const [refDate, setRefDate] = useState(new Date());
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  const shiftDate = (dir: number) => {
+    const d = new Date(refDate);
+    if (timeAgg === 'daily') d.setDate(d.getDate() + dir);
+    else d.setMonth(d.getMonth() + dir);
+    setRefDate(d);
+  };
+
   const generateChartData = () => {
-    if (!bookings.length) return [];
-    let minDate = new Date();
-    let maxDate = new Date();
-    bookings.forEach((b) => {
-      const d = getValidDate(b, 'start');
-      if (d) {
-        if (d < minDate) minDate = new Date(d);
-        if (d > maxDate) maxDate = new Date(d);
-      }
-    });
-    minDate.setDate(minDate.getDate() - 2);
-    maxDate.setDate(maxDate.getDate() + 2);
+    if (!bookings) return [];
     const map = new Map();
-    let current = new Date(minDate);
-    while (current <= maxDate) {
-      const key =
-        timeAgg === 'daily'
-          ? current.toISOString().split('T')[0]
-          : `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`;
-      const label =
-        timeAgg === 'daily'
-          ? current.toLocaleDateString([], { month: 'short', day: 'numeric' }).toUpperCase()
-          : current.toLocaleDateString([], { month: 'short', year: 'numeric' }).toUpperCase();
-      if (!map.has(key)) map.set(key, { key, label, confirmed: 0, cancelled: 0, rescheduled: 0 });
-      current.setDate(current.getDate() + 1);
-    }
-    bookings.forEach((b) => {
-      const d = getValidDate(b, 'start');
-      if (!d) return;
-      const key =
-        timeAgg === 'daily'
-          ? d.toISOString().split('T')[0]
-          : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (map.has(key)) {
-        const entry = map.get(key);
-        if (b.status === 'confirmed') entry.confirmed++;
-        if (b.status === 'cancelled') entry.cancelled++;
-        if (b.status === 'rescheduled') entry.rescheduled++;
+
+    if (timeAgg === 'daily') {
+      // Daily: Group by 24 Hours
+      for (let i = 0; i < 24; i++) {
+        const label = i === 0 ? '12 AM' : i < 12 ? `${i} AM` : i === 12 ? '12 PM' : `${i - 12} PM`;
+        map.set(i, { key: i, label, confirmed: 0, cancelled: 0, rescheduled: 0 });
       }
-    });
-    return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
+
+      bookings.forEach((b) => {
+        const d = getValidDate(b, 'start');
+        if (!d) return;
+        if (
+          d.getFullYear() === refDate.getFullYear() &&
+          d.getMonth() === refDate.getMonth() &&
+          d.getDate() === refDate.getDate()
+        ) {
+          const hr = d.getHours();
+          if (map.has(hr)) {
+            const entry = map.get(hr);
+            if (b.status === 'confirmed') entry.confirmed++;
+            if (b.status === 'cancelled') entry.cancelled++;
+            if (b.status === 'rescheduled') entry.rescheduled++;
+          }
+        }
+      });
+    } else {
+      // Monthly: Group by Days in Month
+      const year = refDate.getFullYear();
+      const month = refDate.getMonth();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+      for (let i = 1; i <= daysInMonth; i++) {
+        const d = new Date(year, month, i);
+        const label = d.toLocaleDateString([], { month: 'short', day: 'numeric' }).toUpperCase();
+        map.set(i, { key: i, label, confirmed: 0, cancelled: 0, rescheduled: 0 });
+      }
+
+      bookings.forEach((b) => {
+        const d = getValidDate(b, 'start');
+        if (!d) return;
+        if (d.getFullYear() === year && d.getMonth() === month) {
+          const day = d.getDate();
+          if (map.has(day)) {
+            const entry = map.get(day);
+            if (b.status === 'confirmed') entry.confirmed++;
+            if (b.status === 'cancelled') entry.cancelled++;
+            if (b.status === 'rescheduled') entry.rescheduled++;
+          }
+        }
+      });
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.key - b.key);
   };
 
   const chartData = generateChartData();
@@ -172,148 +201,297 @@ const DynamicActivityChart = ({ bookings }: { bookings: Booking[] }) => {
     setMetrics((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const renderChartControls = (inModal = false) => (
-    <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6 font-mono-spec text-[10px] tracking-widest font-black uppercase">
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex gap-2 border-r border-[var(--line)] pr-4">
-          <button
-            onClick={() => setTimeAgg('daily')}
-            className={cn(
-              'pb-1 border-b-2 transition-colors',
-              timeAgg === 'daily'
-                ? 'border-[var(--text-primary)] text-[var(--text-primary)]'
-                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]',
-            )}
-          >
-            DAILY
-          </button>
-          <button
-            onClick={() => setTimeAgg('monthly')}
-            className={cn(
-              'pb-1 border-b-2 transition-colors',
-              timeAgg === 'monthly'
-                ? 'border-[var(--text-primary)] text-[var(--text-primary)]'
-                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]',
-            )}
-          >
-            MONTHLY
-          </button>
+  const renderChartControls = (inModal = false) => {
+    const displayDate =
+      timeAgg === 'daily'
+        ? refDate
+            .toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+            .toUpperCase()
+        : refDate.toLocaleDateString([], { month: 'short', year: 'numeric' }).toUpperCase();
+
+    return (
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6 font-mono-spec text-[10px] tracking-widest font-black uppercase">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex gap-2 border-r border-[var(--line)] pr-4">
+            <button
+              onClick={() => {
+                setTimeAgg('daily');
+                setRefDate(new Date());
+              }}
+              className={cn(
+                'pb-1 border-b-2 transition-colors',
+                timeAgg === 'daily'
+                  ? 'border-[var(--text-primary)] text-[var(--text-primary)]'
+                  : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]',
+              )}
+            >
+              DAILY
+            </button>
+            <button
+              onClick={() => {
+                setTimeAgg('monthly');
+                setRefDate(new Date());
+              }}
+              className={cn(
+                'pb-1 border-b-2 transition-colors',
+                timeAgg === 'monthly'
+                  ? 'border-[var(--text-primary)] text-[var(--text-primary)]'
+                  : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]',
+              )}
+            >
+              MONTHLY
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1 border-r border-[var(--line)] pr-4">
+            <button
+              onClick={() => shiftDate(-1)}
+              className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="w-24 text-center text-[var(--text-primary)] font-bold">
+              {displayDate}
+            </span>
+            <button
+              onClick={() => shiftDate(1)}
+              className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex gap-4">
+            <button
+              onClick={() => toggleMetric('confirmed')}
+              className={cn(
+                'flex items-center gap-1.5 transition-colors',
+                metrics.confirmed ? 'text-emerald-500' : 'text-[var(--text-muted)] opacity-50',
+              )}
+            >
+              <span className="w-2 h-2 bg-emerald-500"></span> CONFIRMED
+            </button>
+            <button
+              onClick={() => toggleMetric('rescheduled')}
+              className={cn(
+                'flex items-center gap-1.5 transition-colors',
+                metrics.rescheduled ? 'text-blue-500' : 'text-[var(--text-muted)] opacity-50',
+              )}
+            >
+              <span className="w-2 h-2 bg-blue-500"></span> RESCHEDULED
+            </button>
+            <button
+              onClick={() => toggleMetric('cancelled')}
+              className={cn(
+                'flex items-center gap-1.5 transition-colors',
+                metrics.cancelled ? 'text-red-500' : 'text-[var(--text-muted)] opacity-50',
+              )}
+            >
+              <span className="w-2 h-2 bg-red-500"></span> CANCELLED
+            </button>
+          </div>
         </div>
-        <div className="flex gap-4">
+        {!inModal && (
           <button
-            onClick={() => toggleMetric('confirmed')}
-            className={cn(
-              'flex items-center gap-1.5 transition-colors',
-              metrics.confirmed ? 'text-emerald-500' : 'text-[var(--text-muted)] opacity-50',
-            )}
+            onClick={() => setIsExpanded(true)}
+            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex items-center gap-2 cursor-pointer"
           >
-            <span className="w-2 h-2 bg-emerald-500"></span> CONFIRMED
+            <Maximize2 className="w-4 h-4" /> EXPAND
           </button>
-          <button
-            onClick={() => toggleMetric('rescheduled')}
-            className={cn(
-              'flex items-center gap-1.5 transition-colors',
-              metrics.rescheduled ? 'text-blue-500' : 'text-[var(--text-muted)] opacity-50',
-            )}
-          >
-            <span className="w-2 h-2 bg-blue-500"></span> RESCHEDULED
-          </button>
-          <button
-            onClick={() => toggleMetric('cancelled')}
-            className={cn(
-              'flex items-center gap-1.5 transition-colors',
-              metrics.cancelled ? 'text-red-500' : 'text-[var(--text-muted)] opacity-50',
-            )}
-          >
-            <span className="w-2 h-2 bg-red-500"></span> CANCELLED
-          </button>
-        </div>
+        )}
       </div>
-      {!inModal && (
-        <button
-          onClick={() => setIsExpanded(true)}
-          className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex items-center gap-2 cursor-pointer"
-        >
-          <Maximize2 className="w-4 h-4" /> EXPAND
-        </button>
-      )}
-    </div>
+    );
+  };
+
+  const renderChartArea = () => (
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart data={chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+        <defs>
+          <linearGradient id="colorConf" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+            <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+          </linearGradient>
+          <linearGradient id="colorResch" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+          </linearGradient>
+          <linearGradient id="colorCanc" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+            <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <XAxis
+          dataKey="label"
+          stroke="var(--text-muted)"
+          fontSize={9}
+          tickLine={false}
+          axisLine={false}
+          tick={{ fontFamily: 'var(--font-mono-spec)', fontWeight: 700 }}
+          dy={10}
+          minTickGap={20}
+          interval="preserveStartEnd"
+        />
+        <Tooltip
+          content={<CustomTooltip />}
+          cursor={{ stroke: 'var(--line)', strokeWidth: 1, strokeDasharray: '4 4' }}
+        />
+        {metrics.cancelled && (
+          <Area
+            type="monotone"
+            dataKey="cancelled"
+            name="CANCELLED"
+            stroke="#ef4444"
+            strokeWidth={2}
+            fillOpacity={1}
+            fill="url(#colorCanc)"
+          />
+        )}
+        {metrics.rescheduled && (
+          <Area
+            type="monotone"
+            dataKey="rescheduled"
+            name="RESCHEDULED"
+            stroke="#3b82f6"
+            strokeWidth={2}
+            fillOpacity={1}
+            fill="url(#colorResch)"
+          />
+        )}
+        {metrics.confirmed && (
+          <Area
+            type="monotone"
+            dataKey="confirmed"
+            name="CONFIRMED"
+            stroke="#10b981"
+            strokeWidth={2}
+            fillOpacity={1}
+            fill="url(#colorConf)"
+          />
+        )}
+      </AreaChart>
+    </ResponsiveContainer>
   );
 
   return (
-    <div className="flex flex-col h-full w-full">
-      {renderChartControls()}
-      <div className="flex-1 w-full min-h-[200px]">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="colorConf" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="colorResch" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="colorCanc" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <XAxis
-              dataKey="label"
-              stroke="var(--text-muted)"
-              fontSize={9}
-              tickLine={false}
-              axisLine={false}
-              tick={{ fontFamily: 'var(--font-mono-spec)', fontWeight: 700 }}
-              dy={10}
-            />
-            <Tooltip
-              content={<CustomTooltip />}
-              cursor={{ stroke: 'var(--line)', strokeWidth: 1, strokeDasharray: '4 4' }}
-            />
-            {metrics.cancelled && (
-              <Area
-                type="monotone"
-                dataKey="cancelled"
-                name="CANCELLED"
-                stroke="#ef4444"
-                strokeWidth={2}
-                fillOpacity={1}
-                fill="url(#colorCanc)"
-              />
-            )}
-            {metrics.rescheduled && (
-              <Area
-                type="monotone"
-                dataKey="rescheduled"
-                name="RESCHEDULED"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                fillOpacity={1}
-                fill="url(#colorResch)"
-              />
-            )}
-            {metrics.confirmed && (
-              <Area
-                type="monotone"
-                dataKey="confirmed"
-                name="CONFIRMED"
-                stroke="#10b981"
-                strokeWidth={2}
-                fillOpacity={1}
-                fill="url(#colorConf)"
-              />
-            )}
-          </AreaChart>
-        </ResponsiveContainer>
+    <>
+      <div className="flex flex-col h-full w-full">
+        {renderChartControls()}
+        <div className="flex-1 w-full min-h-[200px]">{renderChartArea()}</div>
+      </div>
+      {mounted &&
+        isExpanded &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[999] flex items-center justify-center bg-[var(--bg)]/80 backdrop-blur-2xl p-4 sm:p-8"
+            onClick={() => setIsExpanded(false)}
+          >
+            <div
+              className="w-full max-w-6xl bg-[var(--surface)]/95 hairline-border shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 sm:p-8 hairline-b flex justify-between items-center bg-[var(--bg)]/50 shrink-0">
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-black text-[var(--text-primary)] uppercase font-mono-spec">
+                    TELEMETRY
+                  </h2>
+                </div>
+                <button
+                  onClick={() => setIsExpanded(false)}
+                  className="p-2 border hairline-border hover:bg-[var(--surface-hover)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 sm:p-8 overflow-y-auto">
+                {renderChartControls(true)}
+                <div className="w-full h-[300px] sm:h-[400px] hairline-border bg-[var(--bg)]/50 p-4 sm:p-6 mb-8">
+                  {renderChartArea()}
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+};
+
+const DonutChart = ({
+  confirmed,
+  cancelled,
+  rescheduled,
+}: {
+  confirmed: number;
+  cancelled: number;
+  rescheduled: number;
+}) => {
+  const total = confirmed + cancelled + rescheduled || 1;
+  const cPct = (confirmed / total) * 100;
+  const rPct = (rescheduled / total) * 100;
+  const xPct = (cancelled / total) * 100;
+  const circumference = 2 * Math.PI * 40;
+  const cDash = (cPct / 100) * circumference;
+  const rDash = (rPct / 100) * circumference;
+  const xDash = (xPct / 100) * circumference;
+
+  return (
+    <div className="relative w-32 h-32 flex-shrink-0">
+      <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
+        <circle cx="50" cy="50" r="40" fill="none" stroke="var(--line)" strokeWidth="8" />
+        <circle
+          cx="50"
+          cy="50"
+          r="40"
+          fill="none"
+          stroke="#ef4444"
+          strokeWidth="8"
+          strokeDasharray={`${xDash} ${circumference}`}
+          strokeDashoffset="0"
+        />
+        <circle
+          cx="50"
+          cy="50"
+          r="40"
+          fill="none"
+          stroke="#3b82f6"
+          strokeWidth="8"
+          strokeDasharray={`${rDash} ${circumference}`}
+          strokeDashoffset={`-${xDash}`}
+        />
+        <circle
+          cx="50"
+          cy="50"
+          r="40"
+          fill="none"
+          stroke="#10b981"
+          strokeWidth="8"
+          strokeDasharray={`${cDash} ${circumference}`}
+          strokeDashoffset={`-${xDash + rDash}`}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center font-mono-spec">
+        <span className="text-xl font-black leading-none">
+          {total === 1 && confirmed === 0 ? 0 : total}
+        </span>
+        <span className="text-[8px] text-[var(--text-muted)] tracking-widest mt-1">TOTAL</span>
       </div>
     </div>
   );
 };
 
-// --- Main Layout ---
+const GlobalStyles = () => (
+  <style
+    dangerouslySetInnerHTML={{
+      __html: `
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, 0.3); border-radius: 3px; }
+    * { scrollbar-width: thin; scrollbar-color: rgba(128, 128, 128, 0.3) transparent; }
+  `,
+    }}
+  />
+);
+
 export default function AdminDashboard() {
   const [mounted, setMounted] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -322,7 +500,6 @@ export default function AdminDashboard() {
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [sysStatus, setSysStatus] = useState<SystemStatus | null>(null);
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -344,7 +521,7 @@ export default function AdminDashboard() {
     setLoading(true);
     try {
       const statusRes = await fetch('/api/admin/status');
-      if (statusRes.status === 401) {
+      if (statusRes.status === 401 || statusRes.status === 403) {
         setIsAuthenticated(false);
         setLoading(false);
         return;
@@ -393,9 +570,8 @@ export default function AdminDashboard() {
   };
 
   const initiateGoogleConnect = () => {
-    // Generate a temporary auth token to initiate OAuth since the route requires Bearer
-    // For M6, the server expects the token in the URL for this specific redirect
-    window.location.href = `/api/admin/connect?token=${prompt('Please re-enter your Admin Token to authorize Google:')}`;
+    const token = prompt('Please re-enter your Admin Token to authorize Google:');
+    if (token) window.location.href = `/api/admin/connect?token=${token}`;
   };
 
   if (!mounted) return null;
@@ -403,6 +579,7 @@ export default function AdminDashboard() {
   if (isAuthenticated === false) {
     return (
       <div className="relative min-h-screen bg-[var(--bg)] text-[var(--text-primary)] font-mono-spec flex items-center justify-center p-4">
+        <GlobalStyles />
         <Canvas3D />
         <div className="relative z-10 w-full max-w-md hairline-border p-8 bg-[var(--surface)]/90 backdrop-blur-md shadow-2xl">
           <div className="space-y-8">
@@ -464,16 +641,21 @@ export default function AdminDashboard() {
       return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
     });
 
+  const upcomingBookings = bookings
+    .filter((b) => b.status === 'confirmed' || b.status === 'rescheduled')
+    .sort(
+      (a, b) =>
+        (getValidDate(a, 'start')?.getTime() || 0) - (getValidDate(b, 'start')?.getTime() || 0),
+    );
+  const activeBookings = bookings.filter((b) => b.status === 'confirmed');
+  const cancelledBookings = bookings.filter((b) => b.status === 'cancelled');
+  const rescheduledBookings = bookings.filter((b) => b.status === 'rescheduled');
+
   return (
     <div className="relative flex h-screen bg-[var(--bg)] text-[var(--text-primary)] font-mono-spec overflow-hidden uppercase">
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(128,128,128,0.3);border-radius:3px}*{scrollbar-width:thin}`,
-        }}
-      />
+      <GlobalStyles />
       <Canvas3D />
 
-      {/* Sidebar Overlay */}
       {isMobileMenuOpen && (
         <div
           className="fixed inset-0 z-[50] bg-black/50 md:hidden"
@@ -522,11 +704,21 @@ export default function AdminDashboard() {
             <h2 className="text-xl font-black">COMMAND CENTER</h2>
           </div>
           <div className="flex items-center gap-4">
+            <div className="relative hidden md:flex items-center w-64">
+              <Search className="absolute left-0 w-4 h-4 text-[var(--text-muted)]" />
+              <input
+                type="text"
+                placeholder="SEARCH DATABASE..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-transparent border-b border-[var(--line)] focus:border-[var(--text-primary)] transition-colors pl-7 pb-1 text-[10px] tracking-widest outline-none text-[var(--text-primary)]"
+              />
+            </div>
             <ThemeToggle />
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
           <div className="max-w-[1600px] mx-auto space-y-8">
             {/* System Status Row */}
             {sysStatus && (
@@ -573,70 +765,386 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            <div className="bg-[var(--surface)]/90 backdrop-blur-md hairline-border shadow-xl">
-              <div className="p-4 hairline-b flex justify-between items-center bg-[var(--bg)]/50">
-                <h3 className="font-black text-sm tracking-widest text-[var(--text-primary)]">
-                  DATABASE LOGS
-                </h3>
-                <button
-                  onClick={checkAuthAndFetch}
-                  className="text-[var(--text-muted)] hover:text-blue-500"
-                >
-                  <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
-                </button>
-              </div>
-              <div className="overflow-auto h-[500px]">
-                <table className="w-full text-left whitespace-nowrap text-xs">
-                  <thead className="sticky top-0 z-10 bg-[var(--surface)]/95 backdrop-blur-md">
-                    <tr className="hairline-b text-[var(--text-muted)] text-[9px] font-black">
-                      <th className="py-4 px-5">ID</th>
-                      <th className="py-4 px-5">GUEST</th>
-                      <th className="py-4 px-5">TYPE</th>
-                      <th className="py-4 px-5">SCHEDULE ({timezone})</th>
-                      <th className="py-4 px-5">STATUS</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--line)]">
-                    {processedBookings.map((b) => (
-                      <tr key={b.id} className="hover:bg-[var(--surface-hover)] transition-colors">
-                        <td className="py-4 px-5 font-black text-[10px]">
-                          #{b.id.substring(0, 8)}
-                        </td>
-                        <td className="py-4 px-5">
-                          <span className="block font-black">{b.name}</span>
-                          <span className="block text-[10px] text-[var(--text-muted)]">
-                            {b.email}
-                          </span>
-                        </td>
-                        <td className="py-4 px-5 font-bold text-[var(--text-secondary)]">
-                          {getMeetingTypeSlug(b) === 'intro' ? 'INTRO' : 'TECH'}
-                        </td>
-                        <td className="py-4 px-5 font-bold text-[10px]">
-                          <span className="block">{formatDate(b)}</span>
-                          <span className="text-[var(--text-muted)] block">
-                            {formatTime(b, 'start')} - {formatTime(b, 'end')}
-                          </span>
-                        </td>
-                        <td className="py-4 px-5 font-black text-[10px]">
-                          <span
-                            className={cn(
-                              b.status === 'confirmed' && 'text-emerald-500',
-                              b.status === 'cancelled' && 'text-red-500',
-                              b.status === 'rescheduled' && 'text-blue-500',
-                            )}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+              {/* LEFT COLUMN */}
+              <div className="lg:col-span-2 space-y-6 md:space-y-8">
+                {/* Metrics Row */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6">
+                  <div className="bg-[var(--surface)]/90 backdrop-blur-md p-4 sm:p-5 hairline-border shadow-xl flex flex-col justify-center">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] text-[var(--text-muted)] font-black tracking-widest">
+                        TOTAL
+                      </span>
+                      <CalendarDays className="w-4 h-4 text-[var(--text-muted)]" />
+                    </div>
+                    <span className="text-2xl sm:text-3xl font-black mb-1">{bookings.length}</span>
+                  </div>
+                  <div className="bg-[var(--surface)]/90 backdrop-blur-md p-4 sm:p-5 hairline-border shadow-xl flex flex-col justify-center">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] text-[var(--text-muted)] font-black tracking-widest">
+                        CONFIRMED
+                      </span>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    </div>
+                    <span className="text-2xl sm:text-3xl font-black mb-1">
+                      {activeBookings.length}
+                    </span>
+                  </div>
+                  <div className="bg-[var(--surface)]/90 backdrop-blur-md p-4 sm:p-5 hairline-border shadow-xl flex flex-col justify-center">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] text-[var(--text-muted)] font-black tracking-widest">
+                        RESCHEDULED
+                      </span>
+                      <CalendarClock className="w-4 h-4 text-blue-500" />
+                    </div>
+                    <span className="text-2xl sm:text-3xl font-black mb-1">
+                      {rescheduledBookings.length}
+                    </span>
+                  </div>
+                  <div className="bg-[var(--surface)]/90 backdrop-blur-md p-4 sm:p-5 hairline-border shadow-xl flex flex-col justify-center">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] text-[var(--text-muted)] font-black tracking-widest">
+                        CANCELLED
+                      </span>
+                      <XCircle className="w-4 h-4 text-red-500" />
+                    </div>
+                    <span className="text-2xl sm:text-3xl font-black mb-1">
+                      {cancelledBookings.length}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Charts Row */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
+                  <div className="md:col-span-2 bg-[var(--surface)]/90 backdrop-blur-md hairline-border p-4 sm:p-6 shadow-xl flex flex-col">
+                    <DynamicActivityChart bookings={bookings} />
+                  </div>
+                  <div className="md:col-span-1 bg-[var(--surface)]/90 backdrop-blur-md hairline-border p-4 sm:p-6 shadow-xl flex flex-col">
+                    <h3 className="font-black text-sm tracking-widest text-[var(--text-primary)] mb-6">
+                      STATUS RATIO
+                    </h3>
+                    <div className="flex-1 flex flex-col sm:flex-row md:flex-col items-center justify-center gap-6">
+                      <DonutChart
+                        confirmed={activeBookings.length}
+                        cancelled={cancelledBookings.length}
+                        rescheduled={rescheduledBookings.length}
+                      />
+                      <div className="space-y-3 font-bold text-[10px] tracking-widest">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 bg-emerald-500"></span>
+                          <span className="text-[var(--text-muted)] w-16">CONF</span>
+                          <span>{activeBookings.length}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 bg-red-500"></span>
+                          <span className="text-[var(--text-muted)] w-16">CANC</span>
+                          <span>{cancelledBookings.length}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 bg-blue-500"></span>
+                          <span className="text-[var(--text-muted)] w-16">RESCH</span>
+                          <span>{rescheduledBookings.length}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Data Table */}
+                <div className="bg-[var(--surface)]/90 backdrop-blur-md hairline-border shadow-xl flex flex-col">
+                  <div className="p-4 sm:p-5 hairline-b flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-[var(--bg)]/50">
+                    <h3 className="font-black text-sm tracking-widest text-[var(--text-primary)]">
+                      DATABASE LOGS
+                    </h3>
+                    <div className="flex flex-wrap items-center gap-3 text-[10px] font-black tracking-widest">
+                      <button
+                        onClick={() => setFilter('all')}
+                        className={cn(
+                          'pb-1 transition-colors',
+                          filter === 'all'
+                            ? 'text-[var(--text-primary)] border-b border-[var(--text-primary)]'
+                            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]',
+                        )}
+                      >
+                        [ALL]
+                      </button>
+                      <button
+                        onClick={() => setFilter('confirmed')}
+                        className={cn(
+                          'pb-1 transition-colors',
+                          filter === 'confirmed'
+                            ? 'text-emerald-500 border-b border-emerald-500'
+                            : 'text-[var(--text-muted)] hover:text-emerald-500',
+                        )}
+                      >
+                        [CONF]
+                      </button>
+                      <button
+                        onClick={() => setFilter('rescheduled')}
+                        className={cn(
+                          'pb-1 transition-colors',
+                          filter === 'rescheduled'
+                            ? 'text-blue-500 border-b border-blue-500'
+                            : 'text-[var(--text-muted)] hover:text-blue-500',
+                        )}
+                      >
+                        [RESCH]
+                      </button>
+                      <button
+                        onClick={() => setFilter('cancelled')}
+                        className={cn(
+                          'pb-1 transition-colors',
+                          filter === 'cancelled'
+                            ? 'text-red-500 border-b border-red-500'
+                            : 'text-[var(--text-muted)] hover:text-red-500',
+                        )}
+                      >
+                        [CANC]
+                      </button>
+                      <button
+                        onClick={checkAuthAndFetch}
+                        className="text-[var(--text-muted)] hover:text-blue-500 ml-4"
+                      >
+                        <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="overflow-auto h-[450px] relative">
+                    <table className="w-full text-left whitespace-nowrap text-xs min-w-[600px]">
+                      <thead className="sticky top-0 z-10 bg-[var(--surface)]/95 backdrop-blur-md">
+                        <tr className="hairline-b text-[var(--text-muted)] text-[9px] font-black">
+                          <th
+                            className="py-4 px-5 cursor-pointer hover:text-[var(--text-primary)]"
+                            onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
                           >
-                            [{b.status}]
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                            ID <ArrowUpDown className="w-3 h-3 inline ml-1" />
+                          </th>
+                          <th className="py-4 px-5">GUEST / EMAIL</th>
+                          <th className="py-4 px-5">TYPE</th>
+                          <th className="py-4 px-5">SCHEDULE ({timezone})</th>
+                          <th className="py-4 px-5 text-center">STATUS</th>
+                          <th className="py-4 px-5 text-right">ACTION</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--line)]">
+                        {processedBookings.map((b) => (
+                          <tr
+                            key={b.id}
+                            onClick={() => setSelectedBooking(b)}
+                            className="hover:bg-[var(--surface-hover)] transition-colors cursor-pointer group"
+                          >
+                            <td className="py-4 px-5 font-black text-[10px]">
+                              #{b.id.substring(0, 8)}
+                            </td>
+                            <td className="py-4 px-5">
+                              <span className="block font-black">{b.name}</span>
+                              <span className="block text-[10px] text-[var(--text-muted)] mt-0.5">
+                                {b.email}
+                              </span>
+                            </td>
+                            <td className="py-4 px-5 font-bold text-[var(--text-secondary)]">
+                              {getMeetingTypeSlug(b) === 'intro' ? 'INTRO (15M)' : 'TECH (30M)'}
+                            </td>
+                            <td className="py-4 px-5 font-bold text-[10px]">
+                              <span className="block">{formatDate(b)}</span>
+                              <span className="text-[var(--text-muted)] block mt-0.5">
+                                {formatTime(b, 'start')} - {formatTime(b, 'end')}
+                              </span>
+                            </td>
+                            <td className="py-4 px-5 text-center font-black text-[10px] tracking-widest">
+                              <span
+                                className={cn(
+                                  b.status === 'confirmed' && 'text-emerald-500',
+                                  b.status === 'cancelled' && 'text-red-500',
+                                  b.status === 'rescheduled' && 'text-blue-500',
+                                )}
+                              >
+                                [{b.status}]
+                              </span>
+                            </td>
+                            <td className="py-4 px-5 text-right">
+                              <button className="text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors">
+                                <ArrowUpRight className="w-4 h-4 inline" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* RIGHT COLUMN */}
+              <div className="lg:col-span-1 space-y-6 md:space-y-8">
+                {/* Upcoming List */}
+                <div className="bg-[var(--surface)]/90 backdrop-blur-md hairline-border p-5 sm:p-6 shadow-xl">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="font-black text-sm tracking-widest text-[var(--text-primary)]">
+                      UPCOMING
+                    </h3>
+                  </div>
+                  <div className="space-y-4">
+                    {upcomingBookings.length === 0 ? (
+                      <div className="text-[10px] font-bold text-[var(--text-muted)] py-4 text-center">
+                        NO UPCOMING MEETINGS.
+                      </div>
+                    ) : (
+                      upcomingBookings.slice(0, 5).map((b, i) => (
+                        <div
+                          key={b.id}
+                          className="flex gap-4 relative pb-4 hairline-b last:border-0 last:pb-0 group"
+                        >
+                          <div className="mt-1 flex-shrink-0">
+                            <span
+                              className={cn(
+                                'w-2 h-2 block',
+                                b.status === 'confirmed' ? 'bg-emerald-500' : 'bg-blue-500',
+                              )}
+                            ></span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex justify-between items-start mb-1">
+                              <h4 className="text-xs font-black truncate pr-2">
+                                {getMeetingTypeSlug(b) === 'intro' ? 'INTRO (15M)' : 'TECH (30M)'}
+                              </h4>
+                              <span
+                                className={cn(
+                                  'text-[8px] font-black tracking-widest',
+                                  b.status === 'confirmed' ? 'text-emerald-500' : 'text-blue-500',
+                                )}
+                              >
+                                [{b.status}]
+                              </span>
+                            </div>
+                            <p className="text-[10px] font-bold text-[var(--text-secondary)]">
+                              {formatDate(b)}, {formatTime(b, 'start')}
+                            </p>
+                            <p className="text-[9px] font-bold text-[var(--text-muted)] tracking-widest mt-1 group-hover:text-[var(--text-primary)] transition-colors">
+                              GUEST: {b.name}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </main>
       </div>
+
+      {/* Row Inspection Modal */}
+      {mounted &&
+        selectedBooking &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[999] flex items-center justify-center bg-[var(--bg)]/80 backdrop-blur-2xl p-4 sm:p-8"
+            onClick={() => setSelectedBooking(null)}
+          >
+            <div
+              className="w-full max-w-3xl bg-[var(--surface)]/95 hairline-border shadow-2xl flex flex-col max-h-[95vh] overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 sm:p-8 hairline-b flex justify-between items-center bg-[var(--bg)]/50 shrink-0">
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight">
+                    BOOKING #{selectedBooking.id.substring(0, 8)}
+                  </h2>
+                  <p className="text-[9px] sm:text-[10px] text-[var(--text-muted)] font-bold tracking-widest mt-1">
+                    DETAILED RESERVATION INSPECTION
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedBooking(null)}
+                  className="p-2 border hairline-border hover:bg-[var(--surface-hover)] text-[var(--text-primary)] cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 sm:p-8 overflow-y-auto space-y-8">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className="space-y-2 lg:col-span-2">
+                    <span className="text-[10px] font-black text-[var(--text-muted)] tracking-widest block hairline-b pb-2">
+                      GUEST INFORMATION
+                    </span>
+                    <div className="pt-2 flex flex-col gap-1">
+                      <span className="font-black text-sm">{selectedBooking.name}</span>
+                      <span className="text-xs font-bold text-[var(--text-muted)]">
+                        {selectedBooking.email}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-black text-[var(--text-muted)] tracking-widest block hairline-b pb-2 mt-6">
+                      GUEST NOTES & CONTEXT
+                    </span>
+                    <p className="font-semibold text-[var(--text-secondary)] normal-case text-xs leading-relaxed pt-2">
+                      {selectedBooking.notes || 'No context notes provided by guest.'}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-black text-[var(--text-muted)] tracking-widest block hairline-b pb-2">
+                      SYSTEM IDENTIFIERS
+                    </span>
+                    <div className="space-y-3 pt-2 text-[10px] tracking-wider uppercase font-bold">
+                      <div className="flex justify-between">
+                        <span className="text-[var(--text-muted)]">FULL ID</span>
+                        <span className="truncate max-w-[150px]">{selectedBooking.id}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[var(--text-muted)]">MANAGE TOKEN</span>
+                        <span className="text-emerald-500">PROTECTED (HASHED)</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className="space-y-2 lg:col-span-2">
+                    <span className="text-[10px] font-black text-[var(--text-muted)] tracking-widest block hairline-b pb-2">
+                      SCHEDULE
+                    </span>
+                    <div className="pt-2 space-y-1">
+                      <span className="block font-black text-[var(--text-secondary)]">
+                        {getMeetingTypeSlug(selectedBooking) === 'intro'
+                          ? 'INTRO (15M)'
+                          : 'TECH (30M)'}
+                      </span>
+                      <span className="block text-[10px] font-bold">
+                        {formatDate(selectedBooking)}
+                      </span>
+                      <span className="text-blue-500 block text-[10px] font-bold">
+                        {formatTime(selectedBooking, 'start')} -{' '}
+                        {formatTime(selectedBooking, 'end')}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-black text-[var(--text-muted)] tracking-widest block hairline-b pb-2">
+                      QUICK ACTIONS
+                    </span>
+                    <div className="pt-2 space-y-3 flex flex-col">
+                      {selectedBooking.meetLink ? (
+                        <a
+                          href={selectedBooking.meetLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] font-black text-blue-500 hover:underline flex items-center gap-2"
+                        >
+                          <Video className="w-3.5 h-3.5" /> JOIN GOOGLE MEET
+                        </a>
+                      ) : (
+                        <div className="text-[10px] font-bold text-[var(--text-muted)]">
+                          NO VIDEO LINK GENERATED
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
