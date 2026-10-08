@@ -3,6 +3,8 @@ export interface TimeRange {
   end: Date;
 }
 
+export type LocationKind = 'google_meet' | 'zoom' | 'phone' | 'in_person' | 'custom';
+
 export interface MeetingType {
   slug: string;
   name: string;
@@ -10,6 +12,16 @@ export interface MeetingType {
   durationMinutes: number;
   bufferBeforeMinutes: number;
   bufferAfterMinutes: number;
+  // Fields below come from the meeting_types table; optional so plain configs still type-check.
+  id?: string;
+  locationKind?: LocationKind;
+  locationDetail?: string | null;
+  /** Cap on bookings of this type per host-calendar day. */
+  maxPerDay?: number | null;
+  /** Bookable only via its direct link. */
+  isPrivate?: boolean;
+  status?: 'active' | 'archived';
+  sortOrder?: number;
 }
 
 export interface WorkingWindow {
@@ -28,7 +40,18 @@ export interface AvailabilityConfig {
   maxAdvanceDays: number;
   slotIntervalMinutes: number;
   workingHours: Record<DayOfWeek, WorkingWindow[]>;
+  /** Active meeting types keyed by slug (archived ones are not bookable). */
   meetingTypes: Record<string, MeetingType>;
+  /** Cap on all bookings per host-calendar day; null/undefined for no cap. */
+  maxMeetingsPerDay?: number | null;
+}
+
+export interface AvailabilityOverride {
+  /** YYYY-MM-DD in the host's time zone. */
+  date: string;
+  kind: 'closed' | 'custom';
+  windows: WorkingWindow[];
+  note?: string | null;
 }
 
 export interface Slot {

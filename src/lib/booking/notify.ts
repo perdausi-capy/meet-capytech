@@ -4,6 +4,7 @@ import { getDb } from '@/lib/db';
 import { bookings } from '@/lib/db/schema';
 import { enqueueJob } from '@/lib/jobs/queue';
 import { getAvailabilityConfig } from '@/lib/slots/config';
+import { getMeetingTypeBySlug } from '@/lib/meeting-types';
 import { openSecret, sealSecret } from '@/lib/security/crypto';
 import { sendEmail } from '@/lib/email/send';
 import {
@@ -53,7 +54,8 @@ export async function sendBookingEmail(payload: BookingEmailPayload): Promise<vo
   if (!booking) return; // Booking was removed (e.g. a rolled-back reservation); nothing to send.
 
   const config = getAvailabilityConfig();
-  const meetingName = config.meetingTypes[booking.type_slug]?.name ?? booking.type_slug;
+  const meetingName =
+    getMeetingTypeBySlug(booking.type_slug, { includeArchived: true })?.name ?? booking.type_slug;
 
   const data: BookingEmailData = {
     guestName: booking.name,

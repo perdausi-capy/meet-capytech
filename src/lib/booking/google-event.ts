@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import { getOAuth2Client, getValidAccessToken } from '@/lib/calendars/google-auth';
 import { env } from '@/env';
 import { logger } from '@/lib/logger';
+import type { LocationKind } from '@/lib/slots/types';
 import { enqueueJob } from '@/lib/jobs/queue';
 
 export const DELETE_EVENT_JOB = 'google.delete_event';
@@ -13,7 +14,24 @@ export interface CreateEventParams {
   endsAt: string; // ISO UTC
   guestName: string;
   guestEmail: string;
-  useZoom?: boolean;
+  /** Where the meeting happens; Google Meet (default) gets a generated video link. */
+  location?: { kind: LocationKind; detail?: string | null };
+}
+
+/** The event's location text, or undefined when a Google Meet link will be generated. */
+export function eventLocation(location: CreateEventParams['location']): string | undefined {
+  switch (location?.kind ?? 'google_meet') {
+    case 'google_meet':
+      return undefined;
+    case 'zoom':
+      return location?.detail || env.ZOOM_LINK || 'Zoom (link to follow)';
+    case 'phone':
+      return location?.detail ? `Phone: ${location.detail}` : 'Phone call';
+    case 'in_person':
+      return location?.detail || 'In person';
+    default:
+      return location?.detail || undefined;
+  }
 }
 
 export async function createGoogleCalendarEvent(
@@ -33,7 +51,8 @@ export async function createGoogleCalendarEvent(
   oauth2Client.setCredentials({ access_token: accessToken });
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
-  const location = params.useZoom && env.ZOOM_LINK ? env.ZOOM_LINK : undefined;
+  const location = eventLocation(params.location);
+  const wantsMeet = (params.location?.kind ?? 'google_meet') === 'google_meet';
 
   const eventPayload: any = {
     summary: params.title,
@@ -42,7 +61,7 @@ export async function createGoogleCalendarEvent(
     start: { dateTime: params.startsAt },
     end: { dateTime: params.endsAt },
     attendees: [{ email: params.guestEmail, displayName: params.guestName }],
-    conferenceData: !location
+    conferenceData: wantsMeet
       ? {
           createRequest: {
             requestId: `meet-${Date.now()}`,

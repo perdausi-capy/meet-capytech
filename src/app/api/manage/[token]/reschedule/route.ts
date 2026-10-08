@@ -8,7 +8,13 @@ import {
   deleteGoogleCalendarEvent,
   queueEventDeletion,
 } from '@/lib/booking/google-event';
-import { hostDateForSlot, reservePendingBooking, SlotTakenError } from '@/lib/booking/reserve';
+import {
+  hostDateForSlot,
+  hostDayBounds,
+  reservePendingBooking,
+  SlotTakenError,
+} from '@/lib/booking/reserve';
+import { getMeetingTypeBySlug } from '@/lib/meeting-types';
 import { checkAndIncrementRateLimit } from '@/lib/security/rate-limit';
 import { queueWebhook } from '@/lib/webhooks/dispatcher';
 import { queueBookingEmail } from '@/lib/booking/notify';
@@ -73,15 +79,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   const { startTime } = parseResult.data;
 
   const config = getAvailabilityConfig();
-  const meetingConfig = config.meetingTypes[existingBooking.type_slug];
+  // Archived types stay reschedulable for guests who already booked them.
+  const meetingConfig = getMeetingTypeBySlug(existingBooking.type_slug, { includeArchived: true });
   if (!meetingConfig) return NextResponse.json({ error: 'Invalid meeting type' }, { status: 400 });
 
   const hostDate = hostDateForSlot(startTime, config.timezone);
   if (!hostDate) return NextResponse.json({ error: 'Invalid start time' }, { status: 400 });
 
-  const availableSlots = await getBookableSlots(hostDate, existingBooking.type_slug).catch(
-    () => null,
-  );
+  const availableSlots = await getBookableSlots(hostDate, existingBooking.type_slug, {
+    includeArchived: true,
+  }).catch(() => null);
   if (!availableSlots)
     return NextResponse.json(
       { error: 'Unable to verify availability at this time.' },
@@ -111,20 +118,28 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
 
   // 1. Reserve the new slot.
   try {
-    reservePendingBooking({
-      id: newBookingId,
-      type_slug: existingBooking.type_slug,
-      starts_at: newStartIso,
-      ends_at: newEndIso,
-      name: existingBooking.name,
-      email: existingBooking.email,
-      company: existingBooking.company,
-      notes: existingBooking.notes,
-      guest_timezone: existingBooking.guest_timezone,
-      manage_token_hash: newManageTokenHash,
-      created_at: now,
-      updated_at: now,
-    });
+    reservePendingBooking(
+      {
+        id: newBookingId,
+        type_slug: existingBooking.type_slug,
+        starts_at: newStartIso,
+        ends_at: newEndIso,
+        name: existingBooking.name,
+        email: existingBooking.email,
+        company: existingBooking.company,
+        notes: existingBooking.notes,
+        guest_timezone: existingBooking.guest_timezone,
+        manage_token_hash: newManageTokenHash,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        ...hostDayBounds(newStartIso, config.timezone),
+        maxPerDay: config.maxMeetingsPerDay,
+        typeMaxPerDay: meetingConfig.maxPerDay,
+        excludeBookingId: existingBooking.id,
+      },
+    );
   } catch (err) {
     if (err instanceof SlotTakenError) {
       return NextResponse.json({ error: err.message }, { status: 409 });
@@ -149,6 +164,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       endsAt: newEndIso,
       guestName: existingBooking.name,
       guestEmail: existingBooking.email,
+      location: {
+        kind: meetingConfig.locationKind ?? 'google_meet',
+        detail: meetingConfig.locationDetail,
+      },
     });
   } catch (googleErr) {
     logger.error(

@@ -324,7 +324,7 @@ export function BookingFlow() {
     <BookingSummary
       meetingName={meetingType.name}
       durationMinutes={meetingType.durationMinutes}
-      location={config.profile.location}
+      location={meetingType.location}
       startsAt={selectedTime}
       timezone={timezone}
       hour12={hour12}
@@ -406,7 +406,6 @@ export function BookingFlow() {
                     setTypeSlug(slug);
                     setTypeConfirmed(true);
                   }}
-                  location={config.profile.location}
                 />
               </section>
 
@@ -524,7 +523,7 @@ export function BookingFlow() {
                   endsAt: new Date(
                     new Date(selectedTime).getTime() + meetingType.durationMinutes * 60_000,
                   ).toISOString(),
-                  location: result.meetLink ?? config.profile.location,
+                  location: result.meetLink ?? meetingType.location,
                 }}
               />
             </section>

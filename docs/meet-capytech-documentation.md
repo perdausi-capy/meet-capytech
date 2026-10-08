@@ -197,7 +197,7 @@ Status key: ⬜ not started · 🟨 in progress · ✅ done. Update the checklis
 | M8 | Upgrade foundations: email, jobs, backups | 🟨 |
 | M9 | Guest experience redesign | ⬜ |
 | M10 | Notifications and reminders | ⬜ |
-| M11 | Admin command center | ⬜ |
+| M11 | Admin command center | 🟨 |
 | M12 | Insights, operations and admin auth | ⬜ |
 | M13 | Later | ⬜ |
 
@@ -256,11 +256,15 @@ Open from these milestones: **max meetings per day** (M2, moves to M11).
 - [ ] Reminders cancelled or moved automatically when a booking changes
 - [ ] Host notification emails and daily agenda
 
-### M11 — Admin command center ⬜
+### M11 — Admin command center 🟨
 
-- [ ] Weekly availability editor, date overrides (holidays, time off, extra hours), buffers, notice
-- [ ] Max meetings per day (carried over from M2)
-- [ ] Meeting type manager: create/edit/archive, duration, buffers, location, questions, colour, private link-only types, per-type daily limits
+- [x] New admin app: sign-in, sidebar navigation, overview (stats, upcoming meetings, system health, weekly activity chart)
+- [x] Meeting type manager: create/edit/archive/restore/delete (delete only if never booked), duration, buffers, location (Google Meet, Zoom, phone, in person, custom), private link-only types, per-type daily limits, ordering, copyable direct links
+- [x] Host profile editor: name, title, company, introduction, photo upload with 4:5 crop
+- [x] Engine support for date overrides and daily caps (global and per type), enforced inside the reservation transaction
+- [ ] Weekly availability editor, date overrides UI (holidays, time off, extra hours), buffers, notice
+- [ ] Max meetings per day setting in the UI (engine support done; settable via the config API)
+- [ ] Custom intake questions per meeting type
 - [ ] Booking management: day/week calendar views, search, cancel or reschedule on a guest's behalf, internal notes, no-show marking, CSV export
 
 ### M12 — Insights, operations and admin auth ⬜

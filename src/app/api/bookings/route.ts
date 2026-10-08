@@ -14,7 +14,12 @@ import { queueBookingEmail } from '@/lib/booking/notify';
 import { verifyTurnstileToken } from '@/lib/security/turnstile';
 import { checkAndIncrementRateLimit, getClientIp } from '@/lib/security/rate-limit';
 import { sweepStalePendingBookings } from '@/lib/booking/sweep';
-import { hostDateForSlot, reservePendingBooking, SlotTakenError } from '@/lib/booking/reserve';
+import {
+  hostDateForSlot,
+  hostDayBounds,
+  reservePendingBooking,
+  SlotTakenError,
+} from '@/lib/booking/reserve';
 import { queueWebhook } from '@/lib/webhooks/dispatcher';
 import { logger } from '@/lib/logger';
 import { randomUUID, createHash } from 'node:crypto';
@@ -117,20 +122,27 @@ export async function POST(request: Request) {
     const endIso = endNode.toISOString();
 
     try {
-      reservePendingBooking({
-        id: bookingId,
-        type_slug: typeSlug,
-        starts_at: startIso,
-        ends_at: endIso,
-        name,
-        email,
-        company: company || null,
-        notes,
-        guest_timezone: timezone ?? null,
-        manage_token_hash: manageTokenHash,
-        created_at: now,
-        updated_at: now,
-      });
+      reservePendingBooking(
+        {
+          id: bookingId,
+          type_slug: typeSlug,
+          starts_at: startIso,
+          ends_at: endIso,
+          name,
+          email,
+          company: company || null,
+          notes,
+          guest_timezone: timezone ?? null,
+          manage_token_hash: manageTokenHash,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          ...hostDayBounds(startIso, config.timezone),
+          maxPerDay: config.maxMeetingsPerDay,
+          typeMaxPerDay: meetingConfig.maxPerDay,
+        },
+      );
     } catch (dbErr) {
       if (dbErr instanceof SlotTakenError) {
         return NextResponse.json({ error: dbErr.message }, { status: 409 });
@@ -147,6 +159,10 @@ export async function POST(request: Request) {
         endsAt: endIso,
         guestName: name,
         guestEmail: email,
+        location: {
+          kind: meetingConfig.locationKind ?? 'google_meet',
+          detail: meetingConfig.locationDetail,
+        },
       });
     } catch (googleErr) {
       logger.error(

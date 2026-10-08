@@ -1,7 +1,8 @@
 'use client';
 
 import { useRef } from 'react';
-import { Check, Video } from 'lucide-react';
+import { Check } from 'lucide-react';
+import { LocationIcon } from './LocationIcon';
 import { gsap, useGsap } from '@/lib/motion';
 import type { PublicMeetingType } from '@/lib/use-public-config';
 
@@ -13,12 +14,10 @@ export function MeetingTypeGrid({
   types,
   selected,
   onSelect,
-  location,
 }: {
   types: PublicMeetingType[];
   selected: string | null;
   onSelect: (slug: string) => void;
-  location: string;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -74,7 +73,7 @@ export function MeetingTypeGrid({
                   <span className="ml-1.5 font-sans text-sm font-medium text-muted">min</span>
                 </p>
                 <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-2">
-                  <Video className="h-3.5 w-3.5" /> {location}
+                  <LocationIcon kind={t.locationKind} className="h-3.5 w-3.5" /> {t.location}
                 </span>
               </div>
             </button>

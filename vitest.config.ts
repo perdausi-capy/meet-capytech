@@ -13,6 +13,7 @@ export default defineConfig({
     fileParallelism: false,
     exclude: ['node_modules', 'dist', '.next', 'tests/e2e/**'],
     globalSetup: './tests/setup.ts',
+    setupFiles: ['./tests/setup-each.ts'],
     env: {
       NODE_ENV: 'test',
       DATABASE_URL: 'file:./test.db',

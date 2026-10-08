@@ -18,6 +18,10 @@ export const bookings = sqliteTable(
     rescheduled_to: text('rescheduled_to'),
     /** IANA zone the guest booked in, so emails can show their local time. */
     guest_timezone: text('guest_timezone'),
+    /** Private note from the host (admin only, never shown to the guest). */
+    host_notes: text('host_notes'),
+    attendance: text('attendance', { enum: ['attended', 'no_show'] }),
+    cancelled_by: text('cancelled_by', { enum: ['guest', 'host'] }),
     event_id: text('event_id'),
     manage_token_hash: text('manage_token_hash').unique().notNull(),
     created_at: text('created_at').notNull(),
@@ -83,3 +87,48 @@ export const jobs = sqliteTable(
       .where(sql`status IN ('queued', 'running')`),
   }),
 );
+
+/** Bookable meeting types, managed from the admin. Bookings reference them by `slug`. */
+export const meeting_types = sqliteTable(
+  'meeting_types',
+  {
+    id: text('id').primaryKey(),
+    slug: text('slug').notNull().unique(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    duration_minutes: integer('duration_minutes').notNull(),
+    buffer_before_minutes: integer('buffer_before_minutes').notNull().default(0),
+    buffer_after_minutes: integer('buffer_after_minutes').notNull().default(0),
+    location_kind: text('location_kind', {
+      enum: ['google_meet', 'zoom', 'phone', 'in_person', 'custom'],
+    })
+      .notNull()
+      .default('google_meet'),
+    /** Address, phone number, Zoom URL or free text, depending on `location_kind`. */
+    location_detail: text('location_detail'),
+    /** Optional cap on bookings of this type per day (host calendar day). */
+    max_per_day: integer('max_per_day'),
+    /** Private types are bookable only via their direct link (/?type=slug). */
+    is_private: integer('is_private', { mode: 'boolean' }).notNull().default(false),
+    status: text('status', { enum: ['active', 'archived'] })
+      .notNull()
+      .default('active'),
+    sort_order: integer('sort_order').notNull().default(0),
+    created_at: text('created_at').notNull(),
+    updated_at: text('updated_at').notNull(),
+  },
+  (table) => ({
+    statusIdx: index('meeting_types_status_idx').on(table.status, table.sort_order),
+  }),
+);
+
+/** One-off changes to the weekly hours for a single host-calendar date. */
+export const availability_overrides = sqliteTable('availability_overrides', {
+  /** YYYY-MM-DD in the host's time zone. */
+  date: text('date').primaryKey(),
+  /** `closed`: no bookings that day. `custom`: use `windows_json` instead of the weekly hours. */
+  kind: text('kind', { enum: ['closed', 'custom'] }).notNull(),
+  windows_json: text('windows_json').notNull().default('[]'),
+  note: text('note'),
+  updated_at: text('updated_at').notNull(),
+});

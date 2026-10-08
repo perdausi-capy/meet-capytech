@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { verifyAdminBearerToken } from '@/lib/security/auth';
-import { getAvailabilityConfig } from '@/lib/slots/config';
-import { getDb } from '@/lib/db';
-import { settings } from '@/lib/db/schema';
+import { getAvailabilityConfig, saveAvailabilityRules } from '@/lib/slots/config';
+import { syncMeetingTypesFromConfig } from '@/lib/meeting-types';
 import { logger } from '@/lib/logger';
 import { z } from 'zod';
 import { IANAZone } from 'luxon';
@@ -36,6 +35,7 @@ const configSchema = z
       .optional(),
     maxAdvanceDays: z.number().int().min(1).max(365).optional(),
     slotIntervalMinutes: z.number().int().min(5).max(240).optional(),
+    maxMeetingsPerDay: z.number().int().min(1).max(50).nullable().optional(),
     workingHours: z
       .object({
         monday: dayWindows,
@@ -93,24 +93,14 @@ export async function POST(request: Request) {
       workingHours: { ...currentConfig.workingHours, ...parseResult.data.workingHours },
     };
 
-    const db = getDb();
-    db.insert(settings)
-      .values({
-        key: 'availability',
-        value: JSON.stringify(mergedConfig),
-        updated_at: new Date().toISOString(),
-      })
-      .onConflictDoUpdate({
-        target: settings.key,
-        set: {
-          value: JSON.stringify(mergedConfig),
-          updated_at: new Date().toISOString(),
-        },
-      })
-      .run();
+    // Meeting types live in their own table; the rest of the rules stay in settings.
+    if (parseResult.data.meetingTypes) syncMeetingTypesFromConfig(parseResult.data.meetingTypes);
+    const { meetingTypes: _types, ...rules } = mergedConfig;
+    void _types;
+    saveAvailabilityRules(rules);
 
     logger.info('Availability configuration updated via admin API');
-    return NextResponse.json({ success: true, config: mergedConfig });
+    return NextResponse.json({ success: true, config: getAvailabilityConfig() });
   } catch (err) {
     logger.error({ err }, 'Failed to update admin config');
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getBookingByRawToken, isPastChangeCutoff } from '@/lib/booking/manage';
 import { checkAndIncrementRateLimit } from '@/lib/security/rate-limit';
+import { getMeetingTypeBySlug, locationLabel } from '@/lib/meeting-types';
 
 export async function GET(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const rateCheck = checkAndIncrementRateLimit(request, undefined, 'read');
@@ -25,5 +26,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     notes: booking.notes,
     status: booking.status,
     canModify: !isCutoff && booking.status === 'confirmed',
+    meetingType: (() => {
+      const t = getMeetingTypeBySlug(booking.type_slug, { includeArchived: true });
+      return t
+        ? { name: t.name, durationMinutes: t.durationMinutes, location: locationLabel(t) }
+        : null;
+    })(),
   });
 }

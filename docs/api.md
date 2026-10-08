@@ -225,6 +225,34 @@ Updates runtime parameters for working hours, buffers, meeting types, minimum no
 }
 ```
 
+### Admin app endpoints
+
+All require the admin session cookie (set by `POST /api/admin/login`) or `Authorization: Bearer <ADMIN_TOKEN>`.
+
+| Method & path | Purpose |
+|---|---|
+| `GET /api/admin/overview` | Dashboard data: today's agenda, stats (with previous-period comparisons), upcoming, recent changes, system health |
+| `GET /api/admin/activity?view=day\|month\|year&date=YYYY-MM-DD` | Meetings by start time in the host time zone (per hour / day / month), split by status, with totals and a per-type breakdown |
+| `GET /api/admin/meeting-types` | All meeting types (including archived) with booking counts |
+| `POST /api/admin/meeting-types` | Create a type (see field list below) |
+| `PUT /api/admin/meeting-types/{id}` | Update a type. The `slug` can't change once the type has bookings (409) |
+| `PATCH /api/admin/meeting-types/{id}` | `{ "status": "archived" \| "active" }`. The last active type can't be archived |
+| `DELETE /api/admin/meeting-types/{id}` | Delete a never-booked type (409 if it has bookings: archive instead) |
+| `POST /api/admin/meeting-types/reorder` | `{ "ids": [...] }` in display order |
+| `GET/PUT /api/admin/profile` | Host name, title, company, bio |
+| `POST/DELETE /api/admin/profile/photo` | Upload (multipart field `photo`: JPEG/PNG/WebP, max 3 MB, checked by content) or remove the host photo |
+
+Meeting type fields: `slug` (lowercase, dashes), `name`, `description`, `durationMinutes` (5–480),
+`bufferBeforeMinutes`, `bufferAfterMinutes` (0–240), `locationKind` (`google_meet` · `zoom` · `phone` ·
+`in_person` · `custom`), `locationDetail` (required for `in_person`/`custom`), `maxPerDay` (null or 1–50),
+`isPrivate`.
+
+`POST /api/admin/config` still accepts `meetingTypes` for CRM compatibility: the set is upserted by slug and
+active types missing from it are archived. It also accepts `maxMeetingsPerDay` (null or 1–50).
+
+Public: `GET /api/profile/photo` serves the host photo; `GET /api/config?type=<slug>` includes a private type
+when its direct link is opened; `GET /api/availability?type&month&tz` returns a month of slots by guest date.
+
 ---
 
 ## 4. Webhook Events (CRM Integration)

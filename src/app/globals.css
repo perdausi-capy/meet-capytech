@@ -235,7 +235,9 @@
     -webkit-backdrop-filter: blur(22px) saturate(1.4);
     border: 1px solid var(--g-line);
     border-radius: 1.75rem;
-    box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 18px 50px -24px rgb(15 23 42 / 0.25);
+    box-shadow:
+      0 1px 2px rgb(15 23 42 / 0.04),
+      0 18px 50px -24px rgb(15 23 42 / 0.25);
   }
 
   /* Selectable card: meeting types, day-part rows, etc. */
@@ -418,4 +420,16 @@
 }
 .dark .guide-frame {
   box-shadow: 0 0 0 200vmax rgb(0 0 0 / 0.35);
+}
+
+/* ---------- Chart series (validated: all pairs pass CVD/normal-vision checks in both modes) ---------- */
+:root {
+  --viz-confirmed: #2a78d6;
+  --viz-cancelled: #eb6834;
+  --viz-rescheduled: #1baf7a; /* < 3:1 on light: always shown with a labelled legend / table view */
+}
+.dark {
+  --viz-confirmed: #3987e5;
+  --viz-cancelled: #d95926;
+  --viz-rescheduled: #199e70;
 }

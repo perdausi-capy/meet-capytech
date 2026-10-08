@@ -91,6 +91,13 @@ export function Hero({
 }) {
   const rootRef = useRef<HTMLElement>(null);
   const durations = meetingTypes.map((t) => t.durationMinutes);
+  const locations = [...new Set(meetingTypes.map((t) => t.location))];
+  const locationSummary =
+    locations.length === 0
+      ? profile.location
+      : locations.length <= 2
+        ? locations.join(' or ')
+        : 'Video, phone or in person';
   const durationLabel =
     durations.length === 0
       ? ''
@@ -164,7 +171,7 @@ export function Hero({
         </p>
         <ul data-anim="hero-meta" className="mt-6 flex flex-wrap gap-2.5">
           <li className="chip">
-            <Video className="h-4 w-4 text-brand" /> {profile.location}
+            <Video className="h-4 w-4 text-brand" /> {locationSummary}
           </li>
           {durationLabel && (
             <li className="chip">

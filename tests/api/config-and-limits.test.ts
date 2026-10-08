@@ -60,7 +60,7 @@ describe('Admin config validation', () => {
 
   it('public config exposes meeting types and working weekdays from the stored config', async () => {
     await postConfig({ workingHours: { friday: [] } });
-    const res = await GET_PUBLIC_CONFIG();
+    const res = await GET_PUBLIC_CONFIG(new Request('http://localhost:8080/api/config'));
     const data = await res.json();
     expect(data.meetingTypes.map((t: { slug: string }) => t.slug)).toEqual(['intro', 'tech']);
     expect(data.workingWeekdays).toEqual([1, 2, 3, 4]);

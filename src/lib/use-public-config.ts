@@ -7,6 +7,10 @@ export interface PublicMeetingType {
   name: string;
   description: string;
   durationMinutes: number;
+  /** e.g. "Google Meet", "Phone call". */
+  location: string;
+  locationKind: 'google_meet' | 'zoom' | 'phone' | 'in_person' | 'custom';
+  isPrivate: boolean;
 }
 
 export interface PublicProfile {
@@ -35,7 +39,9 @@ export function usePublicConfig() {
 
   useEffect(() => {
     let active = true;
-    fetch('/api/config')
+    // Pass a direct-link type through so a private type is included.
+    const linked = new URLSearchParams(window.location.search).get('type');
+    fetch(linked ? `/api/config?type=${encodeURIComponent(linked)}` : '/api/config')
       .then((res) => {
         if (!res.ok) throw new Error('CONFIG UNAVAILABLE');
         return res.json();

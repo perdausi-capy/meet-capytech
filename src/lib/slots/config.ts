@@ -2,12 +2,14 @@ import { AvailabilityConfig } from './types';
 import { getDb } from '@/lib/db';
 import { settings } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { listMeetingTypes } from '@/lib/meeting-types';
 
 export const DEFAULT_AVAILABILITY_CONFIG: AvailabilityConfig = {
   timezone: 'Europe/London',
   minNoticeHours: 24,
   maxAdvanceDays: 60,
   slotIntervalMinutes: 15,
+  maxMeetingsPerDay: null,
   meetingTypes: {
     intro: {
       slug: 'intro',
@@ -37,15 +39,35 @@ export const DEFAULT_AVAILABILITY_CONFIG: AvailabilityConfig = {
   },
 };
 
+/** Availability rules from settings, with the active meeting types from their own table. */
 export function getAvailabilityConfig(): AvailabilityConfig {
+  let stored: Partial<AvailabilityConfig> = {};
   try {
-    const db = getDb();
-    const record = db.select().from(settings).where(eq(settings.key, 'availability')).get();
-    if (record) {
-      return { ...DEFAULT_AVAILABILITY_CONFIG, ...JSON.parse(record.value) };
-    }
-  } catch (err) {
+    const record = getDb().select().from(settings).where(eq(settings.key, 'availability')).get();
+    if (record) stored = JSON.parse(record.value);
+  } catch {
     // Failsafe during setup/tests if DB isn't fully migrated yet
   }
-  return DEFAULT_AVAILABILITY_CONFIG;
+  // Meeting types used to live in this JSON; they are now managed in the meeting_types table.
+  const { meetingTypes: _legacyTypes, ...rules } = stored;
+  void _legacyTypes;
+
+  let meetingTypes = DEFAULT_AVAILABILITY_CONFIG.meetingTypes;
+  try {
+    meetingTypes = Object.fromEntries(listMeetingTypes().map((t) => [t.slug, t]));
+  } catch {
+    // Table not migrated yet: fall back to the built-in types.
+  }
+  return { ...DEFAULT_AVAILABILITY_CONFIG, ...rules, meetingTypes };
+}
+
+/** Persists the availability rules (everything except meeting types). */
+export function saveAvailabilityRules(rules: Omit<AvailabilityConfig, 'meetingTypes'>) {
+  const value = JSON.stringify(rules);
+  const updated_at = new Date().toISOString();
+  getDb()
+    .insert(settings)
+    .values({ key: 'availability', value, updated_at })
+    .onConflictDoUpdate({ target: settings.key, set: { value, updated_at } })
+    .run();
 }

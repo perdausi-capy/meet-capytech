@@ -31,6 +31,7 @@ interface ManagedBooking {
   email: string;
   status: 'pending' | 'confirmed' | 'cancelled' | 'rescheduled';
   canModify: boolean;
+  meetingType: { name: string; durationMinutes: number; location: string } | null;
 }
 
 type Mode = 'view' | 'reschedule' | 'cancel';
@@ -208,7 +209,8 @@ export function ManageFlow({ initialToken }: { initialToken: string }) {
     );
   }
 
-  const meetingType = config.meetingTypes.find((t) => t.slug === booking.typeSlug);
+  // The booking carries its own type details (works even if the type was archived since).
+  const meetingType = booking.meetingType;
   const meetingName = meetingType?.name ?? booking.typeSlug;
   const durationMinutes =
     meetingType?.durationMinutes ??
@@ -219,7 +221,7 @@ export function ManageFlow({ initialToken }: { initialToken: string }) {
     <BookingSummary
       meetingName={meetingName}
       durationMinutes={durationMinutes}
-      location={config.profile.location}
+      location={meetingType?.location ?? config.profile.location}
       startsAt={booking.startsAt}
       timezone={timezone}
       hour12={hour12}
