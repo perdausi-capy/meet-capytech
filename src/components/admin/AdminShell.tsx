@@ -22,7 +22,7 @@ const NAV: { href: string; label: string; icon: typeof Layers; soon?: boolean }[
   { href: '/admin', label: 'Overview', icon: LayoutDashboard },
   { href: '/admin/meeting-types', label: 'Meeting types', icon: Layers },
   { href: '/admin/profile', label: 'Profile', icon: UserRound },
-  { href: '/admin/availability', label: 'Availability', icon: CalendarClock, soon: true },
+  { href: '/admin/availability', label: 'Availability', icon: CalendarClock },
   { href: '/admin/bookings', label: 'Bookings', icon: CalendarDays, soon: true },
 ];
 

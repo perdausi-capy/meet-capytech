@@ -240,6 +240,10 @@ All require the admin session cookie (set by `POST /api/admin/login`) or `Author
 | `DELETE /api/admin/meeting-types/{id}` | Delete a never-booked type (409 if it has bookings: archive instead) |
 | `POST /api/admin/meeting-types/reorder` | `{ "ids": [...] }` in display order |
 | `GET/PUT /api/admin/profile` | Host name, title, company, bio |
+| `GET /api/admin/availability` | Rules (time zone, notice, window, step, daily cap, weekly hours), upcoming date overrides and bank holidays in the booking window |
+| `PUT /api/admin/availability` | Replace the rules. Time ranges are 24-hour `HH:MM`, up to 6 per day, must not overlap |
+| `POST /api/admin/availability/overrides` | `{ from, to, kind: "closed" \| "custom", windows, note }`: applies to every date in the range (up to 3 months) |
+| `DELETE /api/admin/availability/overrides/{date}` | Back to the weekly hours for that date |
 | `POST/DELETE /api/admin/profile/photo` | Upload (multipart field `photo`: JPEG/PNG/WebP, max 3 MB, checked by content) or remove the host photo |
 
 Meeting type fields: `slug` (lowercase, dashes), `name`, `description`, `durationMinutes` (5–480),

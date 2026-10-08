@@ -4,4 +4,5 @@ import { vi } from 'vitest';
 // Tests that care about holidays pass their own set to the slot engine or spy on this module.
 vi.mock('@/lib/calendars/bank-holidays', () => ({
   getUkBankHolidays: vi.fn(async () => new Set<string>()),
+  getUkBankHolidayEvents: vi.fn(async () => [] as { date: string; title: string }[]),
 }));

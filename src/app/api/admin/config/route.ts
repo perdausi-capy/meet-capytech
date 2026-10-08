@@ -4,14 +4,7 @@ import { getAvailabilityConfig, saveAvailabilityRules } from '@/lib/slots/config
 import { syncMeetingTypesFromConfig } from '@/lib/meeting-types';
 import { logger } from '@/lib/logger';
 import { z } from 'zod';
-import { IANAZone } from 'luxon';
-
-const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Must be HH:MM (24h)');
-const dayWindows = z.array(
-  z
-    .object({ start: hhmm, end: hhmm })
-    .refine((w) => w.start < w.end, { message: 'start must be before end' }),
-);
+import { dayWindows, timezoneSchema } from '@/lib/availability-schema';
 
 const meetingTypeSchema = z.object({
   slug: z.string().regex(/^[a-z0-9-]+$/, 'Lowercase letters, digits and dashes only'),
@@ -24,10 +17,7 @@ const meetingTypeSchema = z.object({
 
 const configSchema = z
   .object({
-    timezone: z
-      .string()
-      .refine((tz) => IANAZone.isValidZone(tz), { message: 'Unknown IANA time zone' })
-      .optional(),
+    timezone: timezoneSchema.optional(),
     minNoticeHours: z
       .number()
       .min(0)

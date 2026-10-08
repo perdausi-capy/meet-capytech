@@ -262,8 +262,8 @@ Open from these milestones: **max meetings per day** (M2, moves to M11).
 - [x] Meeting type manager: create/edit/archive/restore/delete (delete only if never booked), duration, buffers, location (Google Meet, Zoom, phone, in person, custom), private link-only types, per-type daily limits, ordering, copyable direct links
 - [x] Host profile editor: name, title, company, introduction, photo upload with 4:5 crop
 - [x] Engine support for date overrides and daily caps (global and per type), enforced inside the reservation transaction
-- [ ] Weekly availability editor, date overrides UI (holidays, time off, extra hours), buffers, notice
-- [ ] Max meetings per day setting in the UI (engine support done; settable via the config API)
+- [x] Availability page: weekly hours with split shifts and copy-to-weekdays, week-at-a-glance timeline, time zone, notice, booking window, start-time step, daily cap, date-range overrides (closed / special hours, notes), bank holidays with one-click opening, live preview of what guests see
+- [x] Max meetings per day (global and per meeting type)
 - [ ] Custom intake questions per meeting type
 - [ ] Booking management: day/week calendar views, search, cancel or reschedule on a guest's behalf, internal notes, no-show marking, CSV export
 

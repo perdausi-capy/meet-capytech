@@ -177,6 +177,8 @@
   outline-offset: 2px;
 }
 
+/* In the components layer so width utilities (w-24, max-w-…) can override it. */
+@layer components {
 .field {
   width: 100%;
   border-radius: 0.75rem;
@@ -199,6 +201,7 @@
 }
 .field[aria-invalid='true'] {
   border-color: var(--g-danger);
+}
 }
 
 .skeleton {
