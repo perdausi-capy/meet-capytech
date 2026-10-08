@@ -25,6 +25,9 @@ export function getAvailableSlots(params: {
     config = getAvailabilityConfig(),
   } = params;
 
+  // A zero/negative step would never advance the cursor below and hang the request.
+  if (!(config.slotIntervalMinutes > 0) || !(meetingType.durationMinutes > 0)) return [];
+
   if (bankHolidays.has(dateStr)) return [];
 
   const targetDt = DateTime.fromISO(dateStr, { zone: config.timezone });

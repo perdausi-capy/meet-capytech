@@ -6,17 +6,23 @@ import { getAvailabilityConfig } from '@/lib/slots/config';
 import { getBookableSlots } from '@/lib/slots/engine';
 import { createGoogleCalendarEvent, deleteGoogleCalendarEvent } from '@/lib/booking/google-event';
 import { verifyTurnstileToken } from '@/lib/security/turnstile';
-import { checkAndIncrementRateLimit } from '@/lib/security/rate-limit';
+import { checkAndIncrementRateLimit, getClientIp } from '@/lib/security/rate-limit';
 import { sweepStalePendingBookings } from '@/lib/booking/sweep';
+import { hostDateForSlot, reservePendingBooking, SlotTakenError } from '@/lib/booking/reserve';
 import { dispatchWebhook } from '@/lib/webhooks/dispatcher';
 import { logger } from '@/lib/logger';
 import { randomUUID, createHash } from 'node:crypto';
-import { and, eq, gt, lt, or } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { env } from '@/env';
 
 const bookingSchema = z.object({
   meetingType: z.string(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD format'),
+  // Accepted for backwards compatibility; the host date is derived from startTime instead,
+  // because the guest's local date can differ from the host's.
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD format')
+    .optional(),
   startTime: z.string().datetime(),
   name: z.string().min(2, 'Name is required').max(100),
   email: z.string().email('Valid email is required'),
@@ -38,7 +44,6 @@ export async function POST(request: Request) {
 
     const {
       meetingType: typeSlug,
-      date,
       startTime,
       name,
       email,
@@ -51,7 +56,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: rateCheck.reason }, { status: 429 });
     }
 
-    const isHuman = await verifyTurnstileToken(turnstileToken);
+    const isHuman = await verifyTurnstileToken(turnstileToken, getClientIp(request));
     if (!isHuman) {
       return NextResponse.json(
         { error: 'CAPTCHA verification failed. Please try again.' },
@@ -61,7 +66,14 @@ export async function POST(request: Request) {
 
     sweepStalePendingBookings();
 
-    const availableSlots = await getBookableSlots(date, typeSlug).catch(() => null);
+    const config = getAvailabilityConfig();
+    const meetingConfig = config.meetingTypes[typeSlug];
+    if (!meetingConfig) return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
+
+    const hostDate = hostDateForSlot(startTime, config.timezone);
+    if (!hostDate) return NextResponse.json({ error: 'Invalid start time' }, { status: 400 });
+
+    const availableSlots = await getBookableSlots(hostDate, typeSlug).catch(() => null);
     if (!availableSlots) {
       return NextResponse.json(
         { error: 'Unable to verify availability at this time.' },
@@ -69,7 +81,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const isValidSlot = availableSlots.some((slot) => slot.startsAt === startTime);
+    const startNode = new Date(startTime);
+    const isValidSlot = availableSlots.some(
+      (slot) => new Date(slot.startsAt).getTime() === startNode.getTime(),
+    );
     if (!isValidSlot) {
       return NextResponse.json(
         { error: 'This time slot is no longer available. Please select another time.' },
@@ -77,11 +92,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const config = getAvailabilityConfig();
-    const meetingConfig = config.meetingTypes[typeSlug];
-    if (!meetingConfig) return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
-
-    const startNode = new Date(startTime);
     const endNode = new Date(startNode.getTime() + meetingConfig.durationMinutes * 60 * 1000);
 
     const db = getDb();
@@ -93,48 +103,21 @@ export async function POST(request: Request) {
     const endIso = endNode.toISOString();
 
     try {
-      db.transaction(
-        (tx) => {
-          const overlap = tx
-            .select({ id: bookings.id })
-            .from(bookings)
-            .where(
-              and(
-                or(eq(bookings.status, 'pending'), eq(bookings.status, 'confirmed')),
-                lt(bookings.starts_at, endIso),
-                gt(bookings.ends_at, startIso),
-              ),
-            )
-            .get();
-
-          if (overlap) {
-            throw new Error('CONCURRENCY_OVERLAP');
-          }
-
-          tx.insert(bookings)
-            .values({
-              id: bookingId,
-              type_slug: typeSlug,
-              status: 'pending',
-              starts_at: startIso,
-              ends_at: endIso,
-              name,
-              email,
-              notes,
-              manage_token_hash: manageTokenHash,
-              created_at: now,
-              updated_at: now,
-            })
-            .run();
-        },
-        { behavior: 'immediate' },
-      );
-    } catch (dbErr: any) {
-      if (dbErr?.message === 'CONCURRENCY_OVERLAP' || dbErr?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-        return NextResponse.json(
-          { error: 'This time slot is no longer available. Please select another time.' },
-          { status: 409 },
-        );
+      reservePendingBooking({
+        id: bookingId,
+        type_slug: typeSlug,
+        starts_at: startIso,
+        ends_at: endIso,
+        name,
+        email,
+        notes,
+        manage_token_hash: manageTokenHash,
+        created_at: now,
+        updated_at: now,
+      });
+    } catch (dbErr) {
+      if (dbErr instanceof SlotTakenError) {
+        return NextResponse.json({ error: dbErr.message }, { status: 409 });
       }
       throw dbErr;
     }

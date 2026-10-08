@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Invalid or expired OAuth state' }, { status: 400 });
   }
 
-  cookieStore.delete('oauth_state');
+  cookieStore.delete({ name: 'oauth_state', path: '/api/admin/connect' });
 
   if (!code) {
     return NextResponse.json({ error: 'Authorization code missing' }, { status: 400 });

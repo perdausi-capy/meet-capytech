@@ -7,9 +7,14 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 export function DayPicker({
   selectedDate,
   onSelect,
+  maxAdvanceDays = 60,
+  workingWeekdays,
 }: {
   selectedDate?: Date;
   onSelect: (date: Date) => void;
+  maxAdvanceDays?: number;
+  /** JS getDay() numbers to allow. Omit to allow every weekday (e.g. guest in another zone). */
+  workingWeekdays?: number[];
 }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
@@ -23,7 +28,7 @@ export function DayPicker({
   today.setHours(0, 0, 0, 0);
 
   const maxDate = new Date();
-  maxDate.setDate(today.getDate() + 60);
+  maxDate.setDate(today.getDate() + maxAdvanceDays);
 
   const days = Array.from({ length: daysInMonth }, (_, i) => new Date(year, month, i + 1));
   const blanks = Array.from({ length: firstDay }, (_, i) => i);
@@ -76,8 +81,8 @@ export function DayPicker({
           const isSelected = selectedDate?.toDateString() === date.toDateString();
           const isPast = date < today;
           const isTooFar = date > maxDate;
-          const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-          const disabled = isPast || isTooFar || isWeekend;
+          const isDayOff = workingWeekdays ? !workingWeekdays.includes(date.getDay()) : false;
+          const disabled = isPast || isTooFar || isDayOff;
 
           return (
             <button

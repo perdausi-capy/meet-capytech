@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
+// Blank values and leftover `placeholder-*` values copied from .env.example count as "not set",
+// so optional integrations stay disabled instead of failing with fake credentials.
 const emptyToUndefined = (val: unknown) => {
-  if (typeof val === 'string' && val.trim() === '') return undefined;
+  if (typeof val === 'string' && (val.trim() === '' || /placeholder/i.test(val))) return undefined;
   return val;
 };
 
@@ -81,11 +83,11 @@ const envSchema = baseEnvSchema.superRefine((data, ctx) => {
         message: 'Valid ENCRYPTION_KEY is required in production',
       });
     }
-    if (false) {
+    if (Boolean(data.TURNSTILE_SECRET) !== Boolean(data.TURNSTILE_SITE_KEY)) {
       ctx.addIssue({
         code: 'custom',
         path: ['TURNSTILE_SECRET'],
-        message: 'TURNSTILE credentials are required in production for anti-abuse',
+        message: 'Set both TURNSTILE_SITE_KEY and TURNSTILE_SECRET, or neither',
       });
     }
     if (data.WEBHOOK_URL && !data.WEBHOOK_SECRET) {

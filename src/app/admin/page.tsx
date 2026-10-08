@@ -569,9 +569,9 @@ export default function AdminDashboard() {
     setSysStatus(null);
   };
 
+  // Authorised by the httpOnly admin session cookie; never put the token in a URL.
   const initiateGoogleConnect = () => {
-    const token = prompt('Please re-enter your Admin Token to authorize Google:');
-    if (token) window.location.href = `/api/admin/connect?token=${token}`;
+    window.location.href = '/api/admin/connect';
   };
 
   if (!mounted) return null;

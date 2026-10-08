@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getBookingByRawToken, isPastChangeCutoff } from '@/lib/booking/manage';
+import { checkAndIncrementRateLimit } from '@/lib/security/rate-limit';
 
 export async function GET(request: Request, { params }: { params: Promise<{ token: string }> }) {
+  const rateCheck = checkAndIncrementRateLimit(request, undefined, 'read');
+  if (!rateCheck.allowed) return NextResponse.json({ error: rateCheck.reason }, { status: 429 });
+
   const { token } = await params;
   const booking = getBookingByRawToken(token);
 

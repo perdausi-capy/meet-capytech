@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { DateTime } from 'luxon';
 import { DayPicker } from '@/components/DayPicker';
+import { usePublicConfig, detectTimezone } from '@/lib/use-public-config';
 import { SlotList } from '@/components/SlotList';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import dynamic from 'next/dynamic';
@@ -35,50 +37,50 @@ export default function Home() {
     meetLink?: string;
   } | null>(null);
 
+  const { config, error: configError } = usePublicConfig();
+  const hostTimezone = config?.timezone || 'Europe/London';
   const [timezone, setTimezone] = useState('Europe/London');
-  const [siteKey, setSiteKey] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | undefined>(undefined);
+  const siteKey = config?.turnstileSiteKey || null;
 
   useEffect(() => {
-    try {
-      setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/London');
-    } catch {
-      setTimezone('Europe/London');
-    }
-
-    fetch('/api/config')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.turnstileSiteKey) {
-          setSiteKey(data.turnstileSiteKey);
-          window.onTurnstileSuccess = (token: string) => setTurnstileToken(token);
-          const script = document.createElement('script');
-          script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
-          script.async = true;
-          document.body.appendChild(script);
-        }
-      })
-      .catch(() => {});
+    setTimezone(detectTimezone('Europe/London'));
   }, []);
 
+  useEffect(() => {
+    if (!siteKey) return;
+    window.onTurnstileSuccess = (token: string) => setTurnstileToken(token);
+    const script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+    script.async = true;
+    document.body.appendChild(script);
+  }, [siteKey]);
+
+  const timezoneOptions = useMemo(() => {
+    try {
+      const zones = Intl.supportedValuesOf('timeZone');
+      return zones.includes(timezone) ? zones : [timezone, ...zones];
+    } catch {
+      return [timezone];
+    }
+  }, [timezone]);
+
+  // Day-of-week blocking only lines up when the guest shares the host's UTC offset; elsewhere a
+  // host weekday can fall on a different local day, so let the slot list decide instead.
+  const sameOffsetAsHost =
+    DateTime.now().setZone(timezone).offset === DateTime.now().setZone(hostTimezone).offset;
+
+  // The day the guest picked, in their own time zone (the calendar grid is local dates).
   const dateStr = date
     ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
     : '';
 
-  const meetingTypesList = [
-    {
-      slug: 'intro',
-      name: 'Intro call',
-      duration: '15 MIN',
-      desc: 'Quick alignment and introductory conversation.',
-    },
-    {
-      slug: 'tech',
-      name: 'Technical review',
-      duration: '30 MIN',
-      desc: 'Deep dive into architecture and technical scope.',
-    },
-  ];
+  const meetingTypesList = (config?.meetingTypes || []).map((t) => ({
+    slug: t.slug,
+    name: t.name,
+    duration: `${t.durationMinutes} MIN`,
+    desc: t.description,
+  }));
 
   const currentTypeMeta = meetingTypesList.find((m) => m.slug === meetingType);
   const progressPercentage =
@@ -126,7 +128,12 @@ export default function Home() {
   };
 
   const selectedTimeString = time
-    ? new Date(time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+    ? new Date(time).toLocaleTimeString([], {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: timezone,
+      })
     : '--';
 
   return (
@@ -169,8 +176,24 @@ export default function Home() {
                 <span className="font-black text-[var(--text-primary)]">{selectedTimeString}</span>
               </div>
               <div className="flex justify-between py-1.5 hairline-b">
-                <span className="text-[var(--text-muted)] font-bold">ZONE</span>
-                <span className="font-black text-[var(--text-primary)]">{timezone}</span>
+                <label htmlFor="guest-timezone" className="text-[var(--text-muted)] font-bold">
+                  ZONE
+                </label>
+                <select
+                  id="guest-timezone"
+                  value={timezone}
+                  onChange={(e) => {
+                    setTimezone(e.target.value);
+                    setTime(undefined);
+                  }}
+                  className="max-w-[60%] bg-transparent text-right font-black text-[var(--text-primary)] cursor-pointer"
+                >
+                  {timezoneOptions.map((tz) => (
+                    <option key={tz} value={tz}>
+                      {tz}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="flex justify-between py-1.5 hairline-b">
                 <span className="text-[var(--text-muted)] font-bold">LENGTH</span>
@@ -206,6 +229,16 @@ export default function Home() {
                   desired meeting length.
                 </div>
               </div>
+              {configError && (
+                <div className="p-4 hairline-border border-red-600 bg-red-50 dark:bg-red-950/30 text-red-800 dark:text-red-300 font-mono-spec text-xs tracking-wider uppercase text-center font-bold">
+                  {configError}
+                </div>
+              )}
+              {!config && !configError && (
+                <div className="p-8 hairline-border text-center font-mono-spec text-xs tracking-widest text-[var(--text-muted)] uppercase bg-[var(--surface)] font-bold">
+                  LOADING MEETING OPTIONS...
+                </div>
+              )}
               <div className="hairline-t hairline-b divide-y divide-[var(--line)]">
                 {meetingTypesList.map((m, idx) => (
                   <button
@@ -258,6 +291,8 @@ export default function Home() {
               </div>
               <DayPicker
                 selectedDate={date}
+                maxAdvanceDays={config?.maxAdvanceDays}
+                workingWeekdays={sameOffsetAsHost ? config?.workingWeekdays : undefined}
                 onSelect={(d) => {
                   setDate(d);
                   setTime(undefined);
@@ -291,6 +326,8 @@ export default function Home() {
                 <SlotList
                   dateStr={dateStr}
                   meetingType={meetingType}
+                  guestTimezone={timezone}
+                  hostTimezone={hostTimezone}
                   selectedTime={time}
                   onSelect={(t) => {
                     setTime(t);
@@ -337,10 +374,14 @@ export default function Home() {
               )}
               <div className="space-y-6">
                 <div>
-                  <label className="block font-mono-spec text-[10px] uppercase tracking-widest text-[var(--text-primary)] font-black mb-1">
+                  <label
+                    htmlFor="guest-name"
+                    className="block font-mono-spec text-[10px] uppercase tracking-widest text-[var(--text-primary)] font-black mb-1"
+                  >
                     FULL NAME *
                   </label>
                   <input
+                    id="guest-name"
                     required
                     type="text"
                     value={name}
@@ -350,10 +391,14 @@ export default function Home() {
                   />
                 </div>
                 <div>
-                  <label className="block font-mono-spec text-[10px] uppercase tracking-widest text-[var(--text-primary)] font-black mb-1">
+                  <label
+                    htmlFor="guest-email"
+                    className="block font-mono-spec text-[10px] uppercase tracking-widest text-[var(--text-primary)] font-black mb-1"
+                  >
                     EMAIL ADDRESS *
                   </label>
                   <input
+                    id="guest-email"
                     required
                     type="email"
                     value={email}
@@ -363,10 +408,14 @@ export default function Home() {
                   />
                 </div>
                 <div>
-                  <label className="block font-mono-spec text-[10px] uppercase tracking-widest text-[var(--text-primary)] font-black mb-1">
+                  <label
+                    htmlFor="guest-notes"
+                    className="block font-mono-spec text-[10px] uppercase tracking-widest text-[var(--text-primary)] font-black mb-1"
+                  >
                     NOTES (OPTIONAL)
                   </label>
                   <textarea
+                    id="guest-notes"
                     rows={3}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}

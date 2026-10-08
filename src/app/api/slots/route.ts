@@ -11,7 +11,7 @@ const querySchema = z.object({
 });
 
 export async function GET(request: Request) {
-  const rateCheck = checkAndIncrementRateLimit(request);
+  const rateCheck = checkAndIncrementRateLimit(request, undefined, 'read');
   if (!rateCheck.allowed) {
     return NextResponse.json({ error: rateCheck.reason }, { status: 429 });
   }

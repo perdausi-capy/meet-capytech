@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/ORG/meet-capytech:${APP_TAG:-latest}
+    image: ghcr.io/perdausi-capy/meet-capytech:${APP_TAG:-latest}
     restart: unless-stopped
     env_file: ./.env
     environment:

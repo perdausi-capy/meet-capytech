@@ -9,6 +9,7 @@ const Canvas3D = dynamic(() => import('@/components/Canvas3D').then((m) => m.Can
   ssr: false,
 });
 import { cn } from '@/lib/utils';
+import { usePublicConfig } from '@/lib/use-public-config';
 import {
   Calendar,
   Clock,
@@ -28,6 +29,7 @@ interface Booking {
   id: string;
   name: string;
   email: string;
+  typeSlug?: string;
   meetingType?: string;
   type?: string;
   date?: string;
@@ -59,6 +61,8 @@ export default function ManagePage({ params }: { params: any }) {
   const [actionSuccess, setActionSuccess] = useState('');
 
   const [timezone, setTimezone] = useState('Europe/London');
+  const { config } = usePublicConfig();
+  const hostTimezone = config?.timezone || 'Europe/London';
 
   useEffect(() => {
     if (!params) return;
@@ -151,9 +155,21 @@ export default function ManagePage({ params }: { params: any }) {
       if (!res.ok) {
         throw new Error(data.error || 'RESCHEDULE FAILED');
       }
-      setActionSuccess('RESERVATION RESCHEDULED SUCCESSFULLY.');
+      setActionSuccess(
+        data.warning
+          ? `RESERVATION RESCHEDULED. ${String(data.warning).toUpperCase()}`
+          : 'RESERVATION RESCHEDULED SUCCESSFULLY.',
+      );
       setMode('view');
-      fetchBooking(token);
+      setRescheduleDate(undefined);
+      setRescheduleTime(undefined);
+      // The old link now points at the superseded booking; move to the new one.
+      if (data.manageToken) {
+        window.history.replaceState(null, '', `/manage/${data.manageToken}`);
+        setToken(data.manageToken);
+      } else {
+        fetchBooking(token);
+      }
     } catch (err: any) {
       setActionError(err.message || 'RESCHEDULE FAILED');
     } finally {
@@ -163,10 +179,13 @@ export default function ManagePage({ params }: { params: any }) {
 
   // Resilient Extractors
   const getMeetingTypeSlug = (b: Booking | null): string => {
-    if (!b) return 'tech';
-    const raw = String(b.meetingType || b.type || '').toLowerCase();
-    if (raw.includes('intro') || raw.includes('15')) return 'intro';
-    return 'tech'; // Default guarantees the slot engine always receives a valid slug
+    return b?.typeSlug || b?.meetingType || b?.type || '';
+  };
+
+  const meetingTypeLabel = (b: Booking | null): string => {
+    const slug = getMeetingTypeSlug(b);
+    const meta = config?.meetingTypes.find((t) => t.slug === slug);
+    return meta ? `${meta.name} (${meta.durationMinutes} MIN)` : slug || '--';
   };
 
   const getValidDate = (b: Booking | null, key: 'start' | 'end'): Date | null => {
@@ -304,9 +323,7 @@ export default function ManagePage({ params }: { params: any }) {
                     MEETING TYPE
                   </span>
                   <span className="font-black text-blue-600 dark:text-blue-400">
-                    {getMeetingTypeSlug(booking) === 'intro'
-                      ? 'INTRO CALL (15 MIN)'
-                      : 'TECHNICAL REVIEW (30 MIN)'}
+                    {meetingTypeLabel(booking).toUpperCase()}
                   </span>
                 </div>
 
@@ -456,6 +473,7 @@ export default function ManagePage({ params }: { params: any }) {
 
                   <DayPicker
                     selectedDate={rescheduleDate}
+                    maxAdvanceDays={config?.maxAdvanceDays}
                     onSelect={(d) => {
                       setRescheduleDate(d);
                       setRescheduleTime(undefined);
@@ -470,6 +488,8 @@ export default function ManagePage({ params }: { params: any }) {
                       <SlotList
                         dateStr={rescheduleDateStr}
                         meetingType={getMeetingTypeSlug(booking)}
+                        guestTimezone={timezone}
+                        hostTimezone={hostTimezone}
                         selectedTime={rescheduleTime}
                         onSelect={(t) => setRescheduleTime(t)}
                       />
