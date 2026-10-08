@@ -3,53 +3,35 @@
 import { useEffect, useState } from 'react';
 import { Sun, Moon } from 'lucide-react';
 
-export function ThemeToggle() {
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+type Theme = 'light' | 'dark';
+
+/** Light/dark switch. The initial theme is applied by the inline script in the root layout. */
+export function ThemeToggle({ className = '' }: { className?: string }) {
+  const [theme, setTheme] = useState<Theme | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem('theme') as 'light' | 'dark' | null;
-    if (saved) {
-      setTheme(saved);
-      if (saved === 'dark') {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-    } else {
-      setTheme('light');
-      document.documentElement.classList.remove('dark');
-    }
+    setTheme(document.documentElement.classList.contains('dark') ? 'dark' : 'light');
   }, []);
 
-  const toggleTheme = () => {
-    const next = theme === 'light' ? 'dark' : 'light';
+  const toggle = () => {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark';
     setTheme(next);
-    localStorage.setItem('theme', next);
-    if (next === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    document.documentElement.classList.toggle('dark', next === 'dark');
+    try {
+      localStorage.setItem('theme', next);
+    } catch {
+      // Storage can be unavailable (private mode); the toggle still works for this visit.
     }
   };
 
   return (
     <button
       type="button"
-      onClick={toggleTheme}
-      aria-label="Toggle Theme"
-      className="px-3 py-1.5 rounded-lg border hairline-border bg-[var(--surface)] text-[var(--text-primary)] hover:bg-[var(--surface-hover)] transition-colors flex items-center gap-2 text-xs font-mono-spec font-bold cursor-pointer"
+      onClick={toggle}
+      aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+      className={`focus-ring inline-flex h-9 w-9 items-center justify-center rounded-full border border-hairline bg-card text-ink-2 transition-colors hover:text-ink ${className}`}
     >
-      {theme === 'light' ? (
-        <>
-          <Moon className="w-4 h-4 text-zinc-800" />
-          <span>DARK</span>
-        </>
-      ) : (
-        <>
-          <Sun className="w-4 h-4 text-amber-400" />
-          <span>LIGHT</span>
-        </>
-      )}
+      {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </button>
   );
 }

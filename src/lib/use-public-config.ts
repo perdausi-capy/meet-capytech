@@ -9,8 +9,18 @@ export interface PublicMeetingType {
   durationMinutes: number;
 }
 
+export interface PublicProfile {
+  name: string;
+  title: string;
+  company: string;
+  bio: string;
+  avatarUrl: string | null;
+  location: string;
+}
+
 export interface PublicConfig {
   turnstileSiteKey: string | null;
+  profile: PublicProfile;
   timezone: string;
   maxAdvanceDays: number;
   /** JS Date#getDay() numbers (0 = Sunday) on which the host works. */

@@ -32,6 +32,7 @@ const bookingSchema = z.object({
   startTime: z.string().datetime(),
   name: z.string().min(2, 'Name is required').max(100),
   email: z.string().email('Valid email is required'),
+  company: z.string().trim().max(100).optional(),
   notes: z.string().max(1000).optional().default(''),
   turnstileToken: z.string().optional(),
   // The guest's IANA zone, so emails can show their local time.
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
       startTime,
       name,
       email,
+      company,
       notes,
       turnstileToken,
       timezone,
@@ -122,6 +124,7 @@ export async function POST(request: Request) {
         ends_at: endIso,
         name,
         email,
+        company: company || null,
         notes,
         guest_timezone: timezone ?? null,
         manage_token_hash: manageTokenHash,
@@ -139,7 +142,7 @@ export async function POST(request: Request) {
     try {
       googleEvent = await createGoogleCalendarEvent({
         title: `${meetingConfig.name} - ${name}`,
-        description: `Meeting with ${name} (${email})\nNotes: ${notes || 'None'}\n\nManage your booking here: ${env.BASE_URL}/manage/${manageToken}`,
+        description: `Meeting with ${name} (${email})${company ? `, ${company}` : ''}\nNotes: ${notes || 'None'}\n\nManage your booking here: ${env.BASE_URL}/manage/${manageToken}`,
         startsAt: startIso,
         endsAt: endIso,
         guestName: name,

@@ -3,6 +3,7 @@ import { env } from '@/env';
 import { getAvailabilityConfig } from '@/lib/slots/config';
 import { isTurnstileEnabled } from '@/lib/security/turnstile';
 import type { DayOfWeek } from '@/lib/slots/types';
+import { getHostProfile } from '@/lib/profile';
 
 // Read at request time: keys come from the runtime .env and the config can change via the admin API.
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,7 @@ export async function GET() {
   return NextResponse.json(
     {
       turnstileSiteKey: isTurnstileEnabled() ? env.TURNSTILE_SITE_KEY : null,
+      profile: getHostProfile(),
       timezone: config.timezone,
       maxAdvanceDays: config.maxAdvanceDays,
       workingWeekdays: (Object.keys(JS_WEEKDAY) as DayOfWeek[])

@@ -3,7 +3,8 @@ import { test, expect } from '@playwright/test';
 test.describe('Guest Booking & Manage UI E2E Flow', () => {
   test('displays available slots and allows navigating booking interface', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('body')).toContainText('CAPYTECH');
+    await expect(page.locator('h1')).toContainText('Meet with');
+    await expect(page.getByRole('radiogroup', { name: 'Meeting type' })).toBeVisible();
   });
 
   test('manage page renders booking details properly', async ({ page, request }) => {
@@ -36,10 +37,9 @@ test.describe('Guest Booking & Manage UI E2E Flow', () => {
     await page.goto(`/manage/${token}`);
 
     // 4. Verify UI components
-    await expect(page.locator('h1')).toContainText('Manage Booking');
-    await expect(page.locator('body')).toContainText('E2E Tester');
-    await expect(page.locator('body')).toContainText('e2e@capytech.com');
-    await expect(page.locator('button', { hasText: 'Reschedule Booking' })).toBeVisible();
-    await expect(page.locator('button', { hasText: 'Cancel Booking' })).toBeVisible();
+    await expect(page.locator('h1')).toContainText('here’s your meeting');
+    await expect(page.locator('h1')).toContainText('Hi E2E');
+    await expect(page.getByRole('button', { name: 'Reschedule' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Cancel meeting' })).toBeVisible();
   });
 });

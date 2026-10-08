@@ -107,6 +107,23 @@ export function getAvailableSlots(params: {
 }
 
 export async function getBookableSlots(dateStr: string, typeSlug: string): Promise<Slot[]> {
+  return getBookableSlotsBetween(dateStr, dateStr, typeSlug);
+}
+
+// Upper bound on one range request, so a crafted query can't make us expand years of calendars.
+const MAX_RANGE_DAYS = 62;
+
+/**
+ * Bookable slots for every host-calendar date from `fromDateStr` to `toDateStr` (inclusive),
+ * reading the calendars once for the whole range. Dates outside the booking window are skipped
+ * without touching any calendar.
+ */
+export async function getBookableSlotsBetween(
+  fromDateStr: string,
+  toDateStr: string,
+  typeSlug: string,
+  now: Date = new Date(),
+): Promise<Slot[]> {
   const config = getAvailabilityConfig();
   const meetingType = config.meetingTypes[typeSlug];
 
@@ -114,20 +131,36 @@ export async function getBookableSlots(dateStr: string, typeSlug: string): Promi
     throw new Error('Invalid meeting type');
   }
 
-  const targetDt = DateTime.fromISO(dateStr, { zone: config.timezone });
-  const fromDate = targetDt.startOf('day').toJSDate();
-  const toDate = targetDt.endOf('day').toJSDate();
+  const today = DateTime.fromJSDate(now, { zone: config.timezone }).startOf('day');
+  const lastBookable = today.plus({ days: config.maxAdvanceDays });
+  let from = DateTime.fromISO(fromDateStr, { zone: config.timezone }).startOf('day');
+  let to = DateTime.fromISO(toDateStr, { zone: config.timezone }).startOf('day');
+  if (!from.isValid || !to.isValid) throw new Error('Invalid date');
+
+  if (from < today) from = today;
+  if (to > lastBookable) to = lastBookable;
+  if (to < from) return [];
+  if (to.diff(from, 'days').days > MAX_RANGE_DAYS) {
+    to = from.plus({ days: MAX_RANGE_DAYS });
+  }
 
   const [busyRanges, bankHolidays] = await Promise.all([
-    getAggregatedBusyRanges(fromDate, toDate),
+    getAggregatedBusyRanges(from.toJSDate(), to.endOf('day').toJSDate()),
     getUkBankHolidays(),
   ]);
 
-  return getAvailableSlots({
-    dateStr,
-    meetingType,
-    busyRanges,
-    bankHolidays,
-    config,
-  });
+  const slots: Slot[] = [];
+  for (let day = from; day <= to; day = day.plus({ days: 1 })) {
+    slots.push(
+      ...getAvailableSlots({
+        dateStr: day.toISODate() as string,
+        meetingType,
+        busyRanges,
+        bankHolidays,
+        now,
+        config,
+      }),
+    );
+  }
+  return slots;
 }
