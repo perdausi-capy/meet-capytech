@@ -36,7 +36,7 @@
     "rrule": "^2.8.1",
     "tailwind-merge": "^2.5.5",
     "three": "^0.170.0",
-    "zod": "^3.23.8"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@next/eslint-plugin-next": "^15.0.3",
