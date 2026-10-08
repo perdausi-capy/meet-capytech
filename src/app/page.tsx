@@ -104,12 +104,12 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           meetingType,
-          date: dateStr,
           startTime: time,
           name,
           email,
           notes,
           turnstileToken,
+          timezone,
         }),
       });
 

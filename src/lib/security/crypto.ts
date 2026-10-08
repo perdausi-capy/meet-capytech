@@ -35,3 +35,19 @@ export function decryptToken(encryptedData: string): string {
 
   return decrypted;
 }
+
+/**
+ * Encrypts a secret for storage in job payloads (e.g. a raw manage token for an email link).
+ * Without ENCRYPTION_KEY, which only development allows, it is stored as-is with a marker.
+ */
+export function sealSecret(text: string): string {
+  if (env.ENCRYPTION_KEY) return `enc:${encryptToken(text)}`;
+  if (env.NODE_ENV === 'production') throw new Error('ENCRYPTION_KEY not configured');
+  return `plain:${text}`;
+}
+
+export function openSecret(sealed: string): string {
+  if (sealed.startsWith('enc:')) return decryptToken(sealed.slice(4));
+  if (sealed.startsWith('plain:')) return sealed.slice(6);
+  throw new Error('Unknown sealed secret format');
+}

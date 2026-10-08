@@ -1,15 +1,21 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { IANAZone } from 'luxon';
 import { getDb } from '@/lib/db';
 import { bookings } from '@/lib/db/schema';
 import { getAvailabilityConfig } from '@/lib/slots/config';
 import { getBookableSlots } from '@/lib/slots/engine';
-import { createGoogleCalendarEvent, deleteGoogleCalendarEvent } from '@/lib/booking/google-event';
+import {
+  createGoogleCalendarEvent,
+  deleteGoogleCalendarEvent,
+  queueEventDeletion,
+} from '@/lib/booking/google-event';
+import { queueBookingEmail } from '@/lib/booking/notify';
 import { verifyTurnstileToken } from '@/lib/security/turnstile';
 import { checkAndIncrementRateLimit, getClientIp } from '@/lib/security/rate-limit';
 import { sweepStalePendingBookings } from '@/lib/booking/sweep';
 import { hostDateForSlot, reservePendingBooking, SlotTakenError } from '@/lib/booking/reserve';
-import { dispatchWebhook } from '@/lib/webhooks/dispatcher';
+import { queueWebhook } from '@/lib/webhooks/dispatcher';
 import { logger } from '@/lib/logger';
 import { randomUUID, createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
@@ -28,6 +34,11 @@ const bookingSchema = z.object({
   email: z.string().email('Valid email is required'),
   notes: z.string().max(1000).optional().default(''),
   turnstileToken: z.string().optional(),
+  // The guest's IANA zone, so emails can show their local time.
+  timezone: z
+    .string()
+    .refine((tz) => IANAZone.isValidZone(tz))
+    .optional(),
 });
 
 export async function POST(request: Request) {
@@ -49,6 +60,7 @@ export async function POST(request: Request) {
       email,
       notes,
       turnstileToken,
+      timezone,
     } = parseResult.data;
 
     const rateCheck = checkAndIncrementRateLimit(request, email);
@@ -111,6 +123,7 @@ export async function POST(request: Request) {
         name,
         email,
         notes,
+        guest_timezone: timezone ?? null,
         manage_token_hash: manageTokenHash,
         created_at: now,
         updated_at: now,
@@ -163,8 +176,9 @@ export async function POST(request: Request) {
       } catch (deleteErr) {
         logger.error(
           { err: deleteErr, bookingId, eventId: googleEvent.eventId },
-          'Failed to delete Google Calendar event after confirmation failure',
+          'Failed to delete Google Calendar event after confirmation failure; retrying in background',
         );
+        queueEventDeletion(googleEvent.eventId);
       }
       db.delete(bookings).where(eq(bookings.id, bookingId)).run();
       return NextResponse.json(
@@ -173,7 +187,11 @@ export async function POST(request: Request) {
       );
     }
 
-    dispatchWebhook('booking.created', {
+    queueBookingEmail('booking_confirmed', bookingId, {
+      manageToken,
+      meetLink: googleEvent.meetLink,
+    });
+    queueWebhook('booking.created', {
       id: bookingId,
       typeSlug,
       status: 'confirmed',
@@ -182,7 +200,7 @@ export async function POST(request: Request) {
       name,
       email,
       notes,
-    }).catch(() => {});
+    });
 
     logger.info({ bookingId, email, startTime, eventId: googleEvent.eventId }, 'Booking confirmed');
 

@@ -37,6 +37,12 @@ export function getDb() {
   return globalForDb._db;
 }
 
+/** The underlying better-sqlite3 handle, for things Drizzle doesn't wrap (e.g. online backups). */
+export function getSqlite(): Database.Database {
+  getDb();
+  return globalForDb._sqlite as Database.Database;
+}
+
 export function closeDb() {
   if (globalForDb._sqlite) {
     globalForDb._sqlite.close();

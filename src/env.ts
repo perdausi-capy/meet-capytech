@@ -55,6 +55,15 @@ const baseEnvSchema = z.object({
   WEBHOOK_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
   WEBHOOK_SECRET: z.preprocess(emptyToUndefined, z.string().min(32).optional()),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  // Email over SMTP (Amazon SES London in production). Unset in development: emails go to
+  // DATA_DIR/outbox as .eml files instead.
+  SMTP_HOST: z.preprocess(emptyToUndefined, z.string().optional()),
+  SMTP_PORT: z.coerce.number().int().default(587),
+  SMTP_USER: z.preprocess(emptyToUndefined, z.string().optional()),
+  SMTP_PASS: z.preprocess(emptyToUndefined, z.string().optional()),
+  EMAIL_FROM: z.preprocess(emptyToUndefined, z.string().optional()),
+  EMAIL_REPLY_TO: z.preprocess(emptyToUndefined, z.string().email().optional()),
+  BACKUP_RETENTION_DAYS: z.coerce.number().int().min(1).default(14),
 });
 
 const envSchema = baseEnvSchema.superRefine((data, ctx) => {
@@ -88,6 +97,13 @@ const envSchema = baseEnvSchema.superRefine((data, ctx) => {
         code: 'custom',
         path: ['TURNSTILE_SECRET'],
         message: 'Set both TURNSTILE_SITE_KEY and TURNSTILE_SECRET, or neither',
+      });
+    }
+    if (data.SMTP_HOST && !data.EMAIL_FROM) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['EMAIL_FROM'],
+        message: 'EMAIL_FROM is required when SMTP_HOST is configured',
       });
     }
     if (data.WEBHOOK_URL && !data.WEBHOOK_SECRET) {

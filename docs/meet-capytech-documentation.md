@@ -1,6 +1,6 @@
 # meet.capytech.co.uk — Booking Service Documentation
 
-> **Status:** Planning. A working prototype exists (zero-dependency Node + vanilla HTML). This document defines the production build.
+> **Status:** Core product (M1–M6) built and running on the VPS; launch hardening and the upgrade roadmap (M7–M13) in progress. See section 3.
 > **Confidentiality:** Do not put real calendar IDs, private iCal links, tokens or personal email addresses in this repository. Everything sensitive lives in environment variables on the server and in GitHub Secrets.
 
 ---
@@ -35,7 +35,7 @@ A public "book a meeting with Jason" page for Capytech UK, hosted at `meet.capyt
 
 **Goals:** reliable (never double-book), fast to use on mobile, simple to operate on one small VPS, UK/EU data residency, easy to hand over.
 
-**Non-goals (for now):** multiple hosts, payments, Microsoft Teams links (we run Google Workspace), a full admin dashboard UI, SMS reminders.
+**Non-goals (for now):** multiple hosts, payments, Microsoft Teams links (we run Google Workspace). (A full admin dashboard is now planned in M11–M12; SMS/WhatsApp reminders in M13.)
 
 ### 1.5 Architecture
 
@@ -125,6 +125,9 @@ The prototype is vanilla JS plus a hand-rolled iCal parser and hand-rolled HTTP 
 | Reverse proxy | **Caddy** | none | Automatic TLS or Cloudflare origin cert, security headers |
 | CI/CD | **GitHub Actions** + **GHCR** (GitHub Container Registry) | manual `docker run` | See section 4 |
 | Backups | SQLite `.backup` on cron (or **Litestream**) to off-box storage | none | Guest data is recoverable |
+| Email | **Nodemailer** over SMTP to **Amazon SES** (eu-west-2, London); local outbox in development | Google invite only | Branded confirmations and reminders; UK data residency; provider swappable via SMTP settings |
+| Background jobs | SQLite-backed job table polled in-process | none | Reminders, retries and backups survive restarts without extra infrastructure |
+| Motion / 3D | **GSAP** animations; **three.js** WebGL scene on desktop only | none | Polished feel without hurting mobile performance |
 
 ### 2.1 Repository layout
 
@@ -183,108 +186,95 @@ Status key: ⬜ not started · 🟨 in progress · ✅ done. Update the checklis
 
 | Milestone | Name | Status |
 |---|---|---|
-| M0 | Prototype review and documentation | 🟨 |
-| M1 | Foundation | ⬜ |
-| M2 | Availability engine | ⬜ |
-| M3 | Booking and Google integration | ⬜ |
-| M4 | Guest self-service | ⬜ |
-| M5 | UI/UX build-out | ⬜ |
-| M6 | CRM sync and admin API | ⬜ |
-| M7 | Hardening and launch | ⬜ |
-| M8 | Post-launch improvements | ⬜ |
+| M0 | Prototype review and documentation | ✅ |
+| M1 | Foundation | ✅ |
+| M2 | Availability engine | 🟨 (max meetings per day open) |
+| M3 | Booking and Google integration | ✅ |
+| M4 | Guest self-service | ✅ |
+| M5 | UI/UX build-out | 🟨 (superseded by M9 redesign) |
+| M6 | CRM sync and admin API | ✅ |
+| M7 | Hardening and launch | 🟨 |
+| M8 | Upgrade foundations: email, jobs, backups | 🟨 |
+| M9 | Guest experience redesign | ⬜ |
+| M10 | Notifications and reminders | ⬜ |
+| M11 | Admin command center | ⬜ |
+| M12 | Insights, operations and admin auth | ⬜ |
+| M13 | Later | ⬜ |
 
-### M0 — Prototype review and documentation 🟨
+**Upgrade decisions (2026-10-08):** single host (Jason) only; no payments; transactional email via
+Amazon SES in eu-west-2 (London) over SMTP; a cleaner, conventional visual design with GSAP animations
+and a three.js WebGL scene on desktop only; Arabic/RTL deferred to M13.
 
-- [x] Review prototype code and setup instructions
-- [x] Security and correctness review completed
-- [ ] This document approved
-- [ ] Wireframes approved
-- [ ] Stack confirmed
+### M0–M6 — Core product ✅
 
-**What it can do so far:** nothing in production. The prototype demonstrates the booking flow end to end but has known issues (double-booking race, private data in config, CRM date filter bug, Docker volume permissions).
+Shipped: availability engine (Luxon, buffers, notice, window, UK bank holidays, Google freeBusy and
+iCal with fail-closed behaviour), reserve-then-confirm booking with Google Meet events, hashed manage
+links with cancel and reschedule (new slot reserved before the old one is released), Turnstile and
+rate limits, token-protected admin/CRM API with webhooks, and a read-only admin dashboard.
 
-### M1 — Foundation
+Open from these milestones: **max meetings per day** (M2, moves to M11).
 
-- [ ] Repo created, TypeScript + Next.js + Tailwind scaffolded
-- [ ] ESLint, Prettier, Husky, Vitest configured
-- [ ] Zod-validated `env.ts`; no secrets or defaults with personal data in code
-- [ ] Drizzle schema, migrations, SQLite on `/data`
-- [ ] Dockerfile (multi-stage, non-root, `/data` owned by `node`) and Compose file
-- [ ] `ci.yml` running lint, typecheck, test, build on every pull request
-- [ ] `/api/health` endpoint
+### M7 — Hardening and launch 🟨
 
-**What it can do so far:** an empty app builds, passes CI, runs in Docker locally and returns a health check.
-
-### M2 — Availability engine
-
-- [ ] Pure slot generator (hours, buffers, notice, window, step, max per day) with Luxon
-- [ ] UK bank holidays (cached)
-- [ ] Google freeBusy adapter, 60-second cache, fails closed
-- [ ] iCal adapter using node-ical + rrule, stores busy ranges only
-- [ ] Mock calendar mode for development
-- [ ] Unit tests including DST change days and recurring events
-
-**What it can do so far:** `GET /api/slots` returns correct, cached availability across all calendars, and refuses to answer if any calendar is unreadable.
-
-### M3 — Booking and Google integration
-
-- [ ] Google OAuth connect flow (one-time, state validated and single-use)
-- [ ] Encrypted token storage with separate `ENCRYPTION_KEY`
-- [ ] Reserve-then-confirm booking (unique index), rollback on Google failure
-- [ ] Event creation with Meet link or Zoom link, invite emailed to guest
-- [ ] Turnstile + per-IP and per-email rate limits
-- [ ] Input validation (Zod) and sanitised event text
-
-**What it can do so far:** a guest can book a slot via the API and Jason's calendar shows the event; two simultaneous requests for one slot result in exactly one booking.
-
-### M4 — Guest self-service
-
-- [ ] Hashed manage tokens
-- [ ] Cancel (surfaces and retries Google failures, never silently)
-- [ ] Reschedule: book new slot first, then release the old one
-- [ ] Optional change cutoff (for example, 2 hours before start)
-
-**What it can do so far:** guests can cancel or move a booking safely without ever losing their original slot by accident.
-
-### M5 — UI/UX build-out
-
-- [ ] Wireframes implemented as components (mobile first)
-- [ ] Calendar, slot list, time zone selector, booking form, confirmation
-- [ ] Slots re-grouped by the guest's local date
-- [ ] Keyboard navigation, visible focus, aria labels
-- [ ] Self-hosted fonts, English (UK) copy; Arabic/RTL scoped as a later option
-- [ ] Playwright end-to-end tests for the main flows
-
-**What it can do so far:** the full guest experience works on phone and desktop and passes accessibility checks.
-
-### M6 — CRM sync and admin API
-
-- [ ] `GET /api/admin/bookings?since=&limit=` with ISO UTC timestamps and paging
-- [ ] `POST /api/admin/config` for hours, buffers and meeting types
-- [ ] `GET /api/admin/status` (Google connection, last freeBusy problems)
-- [ ] Bearer-header auth only, constant-time compare
-- [ ] API documented (OpenAPI or markdown)
-
-**What it can do so far:** the CRM can reliably pull every booking change and update availability rules.
-
-### M7 — Hardening and launch
-
-- [ ] Security headers and CSP via Caddy and Next config
-- [ ] Origin locked to Cloudflare, SSL "Full (strict)", WAF rate limit on `POST /api/book`
-- [ ] Backups running and a restore test completed
-- [ ] `deploy.yml` deploying to the VPS with health check and automatic rollback
+- [x] Security headers via Next config (X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy)
+- [ ] Content Security Policy with per-request nonces
+- [ ] Origin locked to Cloudflare, SSL "Full (strict)", WAF rate limit on `POST /api/bookings`
+- [ ] Backups running and a restore test completed (automated backups land in M8)
+- [ ] Deploy pipeline with health check and automatic rollback (production currently deploys with `git pull` + `docker compose up -d --build` on the VPS)
 - [ ] Staging deployment dry run
 - [ ] Privacy notice and data retention policy confirmed
-- [ ] Production Google OAuth connected, `ADMIN_TOKEN` handed to Jason securely
 
-**What it can do so far:** live at `meet.capytech.co.uk`.
+### M8 — Upgrade foundations 🟨
 
-### M8 — Post-launch
+- [ ] Email service: SMTP (Amazon SES, London) in production; local outbox folder in development
+- [ ] Background job runner stored in SQLite (scheduled jobs, retries with backoff, survives restarts)
+- [ ] Booking confirmation, reschedule and cancellation emails sent through the job runner
+- [ ] Nightly SQLite backups with retention, plus a restore procedure
+- [ ] Failed Google event clean-ups and webhooks retried through the job runner
 
-- [ ] Email reminders, optional buffers by meeting type
-- [ ] Multiple hosts or team round-robin
-- [ ] Lightweight admin dashboard
+**What it can do so far:** the app can send its own branded emails and run scheduled work reliably.
+
+### M9 — Guest experience redesign ⬜
+
+- [ ] New design system: clean, conventional layout, self-hosted fonts, light/dark themes
+- [ ] Desktop three-pane layout (host card, calendar, slots); mobile single column
+- [ ] GSAP motion throughout (page entrance, step transitions, slot reveal, confirmation)
+- [ ] three.js WebGL hero scene on desktop only; static fallback on mobile, low-power devices and `prefers-reduced-motion`
+- [ ] Month availability endpoint so unavailable days are greyed out before clicking
+- [ ] Host profile (photo, bio, branding) and meeting type cards with location
+- [ ] Custom intake questions per meeting type (company, phone, agenda, …)
+- [ ] Confirmation with add-to-calendar (.ics, Google, Outlook) and extra attendees
+- [ ] Direct links per meeting type, prefilled fields, UTM capture, embeddable widget for capytech.co.uk
+- [ ] 12/24-hour toggle; accessibility and mobile performance budget
+
+**What it can do so far:** a polished, fast booking experience that matches the best hosted tools.
+
+### M10 — Notifications and reminders ⬜
+
+- [ ] Branded confirmation, reschedule and cancellation emails with .ics attachments
+- [ ] Reminders 24 hours and 1 hour before; follow-up after the meeting
+- [ ] Reminders cancelled or moved automatically when a booking changes
+- [ ] Host notification emails and daily agenda
+
+### M11 — Admin command center ⬜
+
+- [ ] Weekly availability editor, date overrides (holidays, time off, extra hours), buffers, notice
+- [ ] Max meetings per day (carried over from M2)
+- [ ] Meeting type manager: create/edit/archive, duration, buffers, location, questions, colour, private link-only types, per-type daily limits
+- [ ] Booking management: day/week calendar views, search, cancel or reschedule on a guest's behalf, internal notes, no-show marking, CSV export
+
+### M12 — Insights, operations and admin auth ⬜
+
+- [ ] Analytics: page views → slots viewed → bookings funnel, popular times, no-show and cancellation rates, booking sources (UTM)
+- [ ] Operations page: Google and iCal feed health, webhook delivery log with retry, audit log
+- [ ] Admin sign-in with Google restricted to the host account; separate revocable CRM API keys
+
+### M13 — Later ⬜
+
 - [ ] Arabic/RTL booking page for the GCC audience
+- [ ] WhatsApp/SMS reminders
+- [ ] Routing forms, group events with seat limits, waitlist
+- [ ] Native CRM integrations (e.g. HubSpot)
 - [ ] Uptime monitoring and alerting
 
 ---
@@ -536,13 +526,32 @@ Keep `docker-compose.yml`, `Caddyfile` and `deploy.sh` in the repo under `deploy
 |---|---|
 | Logs | `docker compose logs -f app` (pino JSON) |
 | Status | `GET /api/admin/status` with the Bearer token |
-| Backups | Nightly cron: `sqlite3 /srv/meet/data/booking.db ".backup '/srv/backups/booking-$(date +%F).db'"`, copied off the server; keep 30 days. Restore-test quarterly |
+| Backups | The app writes `data/backups/booking-YYYY-MM-DD.db` nightly at 03:00 London and keeps `BACKUP_RETENTION_DAYS` (default 14). Copy that folder off the server with a host cron job (e.g. `rclone sync /srv/meet/data/backups remote:meet-backups`). Restore-test quarterly |
+| Restore a backup | `docker compose stop app`, copy the chosen `backups/booking-<date>.db` over `data/booking.db` (delete `booking.db-wal` and `booking.db-shm`), then `docker compose start app` |
+| Email problems | Jobs that keep failing are kept in the `jobs` table with `status = 'failed'` and `last_error`; logs show `Job failed` lines |
 | Rotate `ADMIN_TOKEN` | Update `.env`, restart, give the new value to the CRM. (With a separate `ENCRYPTION_KEY`, Google does not need reconnecting.) |
 | Rotate the iCloud link | Regenerate in iCloud, update `ICS_FEEDS` in `.env`, restart |
 | Reconnect Google | Visit `/api/admin/connect` as the host and sign in again |
 | Updates | Dependabot for npm and GitHub Actions; base image refreshed on each build |
 
-### 4.8 Pre-launch deployment checklist
+### 4.8 Email with Amazon SES (London)
+
+1. In the AWS console, switch to **Europe (London) eu-west-2** and open **Amazon SES**.
+2. **Verify the domain** `capytech.co.uk` (Identities → Create identity → Domain) and add the DKIM CNAME records it shows to DNS. Add an SPF include (`include:amazonses.com`) and a DMARC record if the domain has none.
+3. **Request production access** (Account dashboard → Request production access). Until approved, SES only sends to verified addresses.
+4. Create **SMTP credentials** (SMTP settings → Create SMTP credentials) and put them in `/srv/meet/.env`:
+   ```
+   SMTP_HOST=email-smtp.eu-west-2.amazonaws.com
+   SMTP_PORT=587
+   SMTP_USER=<SMTP username>
+   SMTP_PASS=<SMTP password>
+   EMAIL_FROM=Jason at Capytech UK <meet@capytech.co.uk>
+   ```
+5. Restart the app and make a test booking; the confirmation should arrive within a few seconds.
+
+Any SMTP provider works the same way (Brevo, Postmark, Mailgun EU): only these variables change.
+
+### 4.9 Pre-launch deployment checklist
 
 - [ ] VPS hardened (key-only SSH, firewall, automatic security updates)
 - [ ] `/srv/meet/data` owned by uid 1000 and included in backups
@@ -554,3 +563,4 @@ Keep `docker-compose.yml`, `Caddyfile` and `deploy.sh` in the repo under `deploy
 - [ ] Test booking made, cancelled and rescheduled end to end
 - [ ] Rollback tested once on staging
 - [ ] Backup restore tested
+- [ ] SES domain verified, production access granted, test confirmation email received

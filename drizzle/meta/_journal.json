@@ -15,6 +15,13 @@
       "when": 1791269844159,
       "tag": "0001_fast_purple_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791439838699,
+      "tag": "0002_jobs_and_guest_timezone",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { POST as RESCHEDULE_BOOKING } from '@/app/api/manage/[token]/reschedule/route';
 import { getDb } from '@/lib/db';
-import { bookings, settings } from '@/lib/db/schema';
+import { bookings, jobs, settings } from '@/lib/db/schema';
 import { hashManageToken } from '@/lib/booking/manage';
 import { resetRateLimitsForTests } from '@/lib/security/rate-limit';
 import * as googleEventModule from '@/lib/booking/google-event';
@@ -28,6 +28,7 @@ describe('Reschedule safety (reserve new slot first, never lose the original)', 
     const db = getDb();
     db.delete(bookings).run();
     db.delete(settings).run();
+    db.delete(jobs).run();
     db.insert(bookings)
       .values({
         id: ORIGINAL_ID,
@@ -107,19 +108,44 @@ describe('Reschedule safety (reserve new slot first, never lose the original)', 
     expect(pendingDuringCreate).toBe('pending');
   });
 
-  it('reports (instead of hiding) an old event that could not be removed', async () => {
+  it('queues a background retry (and tells the guest) when the old event cannot be removed', async () => {
     vi.spyOn(googleEventModule, 'createGoogleCalendarEvent').mockResolvedValue({
       eventId: 'google-new-event',
     });
-    const deleteSpy = vi
-      .spyOn(googleEventModule, 'deleteGoogleCalendarEvent')
-      .mockRejectedValue(new Error('Google down'));
+    vi.spyOn(googleEventModule, 'deleteGoogleCalendarEvent').mockRejectedValue(
+      new Error('Google down'),
+    );
 
     const res = await reschedule();
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.warning).toMatch(/old calendar invite/);
-    expect(deleteSpy).toHaveBeenCalledTimes(3); // retried
     expect(original()?.status).toBe('rescheduled');
+
+    const retry = getDb()
+      .select()
+      .from(jobs)
+      .all()
+      .find((j) => j.type === 'google.delete_event');
+    expect(JSON.parse(retry!.payload)).toEqual({ eventId: 'google-original-event' });
+  });
+
+  it('queues the rescheduled email for the new booking', async () => {
+    vi.spyOn(googleEventModule, 'createGoogleCalendarEvent').mockResolvedValue({
+      eventId: 'google-new-event',
+    });
+    vi.spyOn(googleEventModule, 'deleteGoogleCalendarEvent').mockResolvedValue(true);
+
+    await reschedule();
+    const [moved] = others();
+    const email = getDb()
+      .select()
+      .from(jobs)
+      .all()
+      .find((j) => j.type === 'email.booking');
+    expect(JSON.parse(email!.payload)).toMatchObject({
+      template: 'booking_rescheduled',
+      bookingId: moved?.id,
+    });
   });
 });

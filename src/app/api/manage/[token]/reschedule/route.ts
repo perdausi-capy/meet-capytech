@@ -3,10 +3,15 @@ import { z } from 'zod';
 import { getBookingByRawToken, isPastChangeCutoff } from '@/lib/booking/manage';
 import { getAvailabilityConfig } from '@/lib/slots/config';
 import { getBookableSlots } from '@/lib/slots/engine';
-import { createGoogleCalendarEvent, deleteGoogleCalendarEvent } from '@/lib/booking/google-event';
+import {
+  createGoogleCalendarEvent,
+  deleteGoogleCalendarEvent,
+  queueEventDeletion,
+} from '@/lib/booking/google-event';
 import { hostDateForSlot, reservePendingBooking, SlotTakenError } from '@/lib/booking/reserve';
 import { checkAndIncrementRateLimit } from '@/lib/security/rate-limit';
-import { dispatchWebhook } from '@/lib/webhooks/dispatcher';
+import { queueWebhook } from '@/lib/webhooks/dispatcher';
+import { queueBookingEmail } from '@/lib/booking/notify';
 import { getDb } from '@/lib/db';
 import { bookings } from '@/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
@@ -23,29 +28,12 @@ const rescheduleSchema = z.object({
   startTime: z.string().datetime(),
 });
 
-const OLD_EVENT_DELETE_ATTEMPTS = 3;
-
-async function deleteOldEventWithRetry(eventId: string): Promise<boolean> {
-  for (let attempt = 1; attempt <= OLD_EVENT_DELETE_ATTEMPTS; attempt++) {
-    try {
-      await deleteGoogleCalendarEvent(eventId);
-      return true;
-    } catch (err) {
-      logger.warn({ err, eventId, attempt }, 'Retrying deletion of old event after reschedule');
-      if (attempt < OLD_EVENT_DELETE_ATTEMPTS) {
-        await new Promise((r) => setTimeout(r, 500 * attempt));
-      }
-    }
-  }
-  return false;
-}
-
 /**
  * Order matters so the guest can never lose their original slot:
  * 1. reserve the new slot in the DB (atomic, rejects overlaps)
  * 2. create the new Google event (on failure: release the reservation, original untouched)
  * 3. confirm new + mark old as rescheduled in one transaction (on failure: undo 1 and 2)
- * 4. only then remove the old Google event, retrying and reporting if it can't be removed
+ * 4. only then remove the old Google event; if that fails, a background job keeps retrying
  */
 export async function POST(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const rateCheck = checkAndIncrementRateLimit(request);
@@ -132,6 +120,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       email: existingBooking.email,
       company: existingBooking.company,
       notes: existingBooking.notes,
+      guest_timezone: existingBooking.guest_timezone,
       manage_token_hash: newManageTokenHash,
       created_at: now,
       updated_at: now,
@@ -191,12 +180,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     });
   } catch (dbErr: any) {
     logger.error({ err: dbErr, bookingId: existingBooking.id }, 'Reschedule swap failed; undoing');
-    await deleteGoogleCalendarEvent(newGoogleEvent.eventId).catch((err) =>
+    const newEventId = newGoogleEvent.eventId;
+    await deleteGoogleCalendarEvent(newEventId).catch((err) => {
       logger.error(
-        { err, eventId: newGoogleEvent.eventId },
-        'Failed to remove new event after aborted reschedule',
-      ),
-    );
+        { err, eventId: newEventId },
+        'Failed to remove new event after aborted reschedule; retrying in background',
+      );
+      queueEventDeletion(newEventId);
+    });
     releaseReservation();
     if (dbErr?.message === 'ORIGINAL_NO_LONGER_CONFIRMED') {
       return NextResponse.json(
@@ -207,20 +198,28 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     return NextResponse.json({ error: 'Database transaction failed.' }, { status: 500 });
   }
 
-  // 4. Remove the old event. The new booking is committed either way; a leftover old event is
-  //    reported to the guest and logged for the host instead of being silently ignored.
+  // 4. Remove the old event. The new booking is committed either way; if Google is unavailable,
+  //    a background job keeps retrying and the guest is told the old invite may linger briefly.
   let oldEventRemoved = true;
   if (existingBooking.event_id) {
-    oldEventRemoved = await deleteOldEventWithRetry(existingBooking.event_id);
-    if (!oldEventRemoved) {
-      logger.error(
-        { bookingId: existingBooking.id, eventId: existingBooking.event_id },
-        'Old calendar event could not be removed after reschedule; manual cleanup needed',
-      );
-    }
+    const oldEventId = existingBooking.event_id;
+    oldEventRemoved = await deleteGoogleCalendarEvent(oldEventId)
+      .then(() => true)
+      .catch((err) => {
+        logger.error(
+          { err, bookingId: existingBooking.id, eventId: oldEventId },
+          'Old calendar event not removed after reschedule; retrying in background',
+        );
+        queueEventDeletion(oldEventId);
+        return false;
+      });
   }
 
-  dispatchWebhook('booking.rescheduled', {
+  queueBookingEmail('booking_rescheduled', newBookingId, {
+    manageToken: newManageToken,
+    meetLink: newGoogleEvent.meetLink,
+  });
+  queueWebhook('booking.rescheduled', {
     id: newBookingId,
     typeSlug: existingBooking.type_slug,
     status: 'confirmed',
@@ -229,7 +228,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     name: existingBooking.name,
     email: existingBooking.email,
     notes: existingBooking.notes,
-  }).catch(() => {});
+  });
 
   logger.info(
     { oldId: existingBooking.id, newId: newBookingId },
@@ -245,7 +244,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       ? {}
       : {
           warning:
-            'Your booking was moved, but the old calendar invite could not be removed. Please ignore it.',
+            'Your booking was moved. The old calendar invite will be removed shortly; please ignore it.',
         }),
   });
 }

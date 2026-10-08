@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { env } from '@/env';
 import { logger } from '@/lib/logger';
+import { enqueueJob } from '@/lib/jobs/queue';
 
 export type WebhookEvent = 'booking.created' | 'booking.cancelled' | 'booking.rescheduled';
 
@@ -19,21 +20,22 @@ export interface WebhookPayload {
   };
 }
 
-export async function dispatchWebhook(
-  event: WebhookEvent,
-  booking: WebhookPayload['booking'],
-): Promise<boolean> {
+export const WEBHOOK_JOB = 'webhook.deliver';
+
+/**
+ * Queues a webhook for delivery. Delivery runs in the background job runner and is retried
+ * with backoff if the CRM is down. `timestamp` is when the change happened, not when delivered.
+ */
+export function queueWebhook(event: WebhookEvent, booking: WebhookPayload['booking']): void {
+  if (!env.WEBHOOK_URL) return;
+  const payload: WebhookPayload = { event, timestamp: new Date().toISOString(), booking };
+  enqueueJob(WEBHOOK_JOB, payload, { maxAttempts: 8 });
+}
+
+/** Sends one webhook. Throws on failure so the job runner retries it. */
+export async function deliverWebhook(payload: WebhookPayload): Promise<void> {
   const webhookUrl = env.WEBHOOK_URL;
-
-  if (!webhookUrl) {
-    return false;
-  }
-
-  const payload: WebhookPayload = {
-    event,
-    timestamp: new Date().toISOString(),
-    booking,
-  };
+  if (!webhookUrl) return;
 
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = {
@@ -46,26 +48,19 @@ export async function dispatchWebhook(
     headers['X-Capytech-Signature'] = `sha256=${signature}`;
   }
 
-  try {
-    const res = await fetch(webhookUrl, {
-      method: 'POST',
-      headers,
-      body,
-      signal: AbortSignal.timeout(5000),
-    });
+  const res = await fetch(webhookUrl, {
+    method: 'POST',
+    headers,
+    body,
+    signal: AbortSignal.timeout(5000),
+  });
 
-    if (!res.ok) {
-      logger.warn(
-        { status: res.status, webhookUrl },
-        'Webhook endpoint responded with non-2xx status',
-      );
-      return false;
-    }
-
-    logger.info({ event, bookingId: booking.id }, 'Webhook event successfully dispatched');
-    return true;
-  } catch (err) {
-    logger.error({ err, event, bookingId: booking.id }, 'Failed to dispatch webhook event');
-    return false;
+  if (!res.ok) {
+    throw new Error(`Webhook endpoint responded with ${res.status}`);
   }
+
+  logger.info(
+    { event: payload.event, bookingId: payload.booking.id },
+    'Webhook event successfully dispatched',
+  );
 }

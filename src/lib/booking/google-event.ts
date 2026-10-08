@@ -2,6 +2,9 @@ import { google } from 'googleapis';
 import { getOAuth2Client, getValidAccessToken } from '@/lib/calendars/google-auth';
 import { env } from '@/env';
 import { logger } from '@/lib/logger';
+import { enqueueJob } from '@/lib/jobs/queue';
+
+export const DELETE_EVENT_JOB = 'google.delete_event';
 
 export interface CreateEventParams {
   title: string;
@@ -94,4 +97,13 @@ export async function deleteGoogleCalendarEvent(eventId: string): Promise<boolea
     logger.error({ err, eventId }, 'Failed to delete Google Calendar event');
     throw err;
   }
+}
+
+/** Queues a Google event deletion that the job runner retries with backoff until it succeeds. */
+export function queueEventDeletion(eventId: string) {
+  enqueueJob(
+    DELETE_EVENT_JOB,
+    { eventId },
+    { dedupeKey: `delete-event:${eventId}`, maxAttempts: 10 },
+  );
 }

@@ -12,10 +12,12 @@ import { logger } from '@/lib/logger';
 export async function getAggregatedBusyRanges(fromDate: Date, toDate: Date): Promise<TimeRange[]> {
   const busyRanges: TimeRange[] = [];
 
+  // Existing bookings are the most important busy source: if they can't be read, fail closed
+  // rather than offering times that are already taken.
   try {
     const db = getDb();
     const dbBookings = db
-      .select()
+      .select({ starts_at: bookings.starts_at, ends_at: bookings.ends_at })
       .from(bookings)
       .where(
         and(
@@ -34,6 +36,7 @@ export async function getAggregatedBusyRanges(fromDate: Date, toDate: Date): Pro
     }
   } catch (err) {
     logger.error({ err }, 'Failed to fetch local database bookings');
+    throw err;
   }
 
   if (env.ICS_FEEDS && env.ICS_FEEDS.length > 0) {

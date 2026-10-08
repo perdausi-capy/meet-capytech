@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { getBookingByRawToken, isPastChangeCutoff } from '@/lib/booking/manage';
 import { deleteGoogleCalendarEvent } from '@/lib/booking/google-event';
 import { checkAndIncrementRateLimit } from '@/lib/security/rate-limit';
-import { dispatchWebhook } from '@/lib/webhooks/dispatcher';
+import { queueWebhook } from '@/lib/webhooks/dispatcher';
+import { queueBookingEmail } from '@/lib/booking/notify';
 import { getDb } from '@/lib/db';
 import { bookings } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -54,7 +55,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     .where(eq(bookings.id, booking.id))
     .run();
 
-  dispatchWebhook('booking.cancelled', {
+  queueBookingEmail('booking_cancelled', booking.id);
+  queueWebhook('booking.cancelled', {
     id: booking.id,
     typeSlug: booking.type_slug,
     status: 'cancelled',
@@ -63,7 +65,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     name: booking.name,
     email: booking.email,
     notes: booking.notes,
-  }).catch(() => {});
+  });
 
   logger.info({ bookingId: booking.id }, 'Booking cancelled by guest');
   return NextResponse.json({ success: true, message: 'Booking successfully cancelled' });
