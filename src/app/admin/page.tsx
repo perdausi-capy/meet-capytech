@@ -63,7 +63,7 @@ interface SystemStatus {
 }
 
 const getMeetingTypeSlug = (b: Booking): string => {
-  const raw = String(b.typeSlug || b.type_slug || b.type || b.meetingType || '').toLowerCase();
+  const raw = String(b.typeSlug || b.type_slug || b.type || '').toLowerCase();
   if (raw.includes('intro') || raw.includes('15')) return 'intro';
   return 'tech';
 };

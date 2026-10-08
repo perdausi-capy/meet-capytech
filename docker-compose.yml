@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    container_name: meet-capytech
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - PORT=8080

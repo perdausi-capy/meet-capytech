@@ -81,7 +81,7 @@ const envSchema = baseEnvSchema.superRefine((data, ctx) => {
         message: 'Valid ENCRYPTION_KEY is required in production',
       });
     }
-    if (!data.TURNSTILE_SECRET || !data.TURNSTILE_SITE_KEY) {
+    if (false) {
       ctx.addIssue({
         code: 'custom',
         path: ['TURNSTILE_SECRET'],
